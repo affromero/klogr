@@ -49,6 +49,7 @@
 - **`@lru_cache` with a disable hook** — flip an env var to bypass caching globally (handy for tests).
 - **Path helpers that handle S3** — `path_join`, `path_exists`, `path_mkdir`, etc. work whether you pass `/tmp/foo` or `s3://bucket/foo`.
 - **`get_elapsed_time(seconds)`** — formats float seconds as `00d : 01h : 12m : 03s`.
+- **One-liner dual output** — `logger.enable_dual_output("run.log")` and every log line goes to BOTH the Rich-formatted console AND the log file. Perfect for batch jobs you also want to scroll back through.
 
 ## Install
 
@@ -101,6 +102,38 @@ logger.print(any_object)    # rich.print, soft-wrap aware
 logger.info_json(json_str)  # syntax-colored JSON
 logger.track(iter, total, description)  # progress bar
 ```
+
+### Log to console AND a file at the same time
+
+One line to mirror everything you log into a file — handy for CI logs,
+batch jobs, or anything you want to scroll back through later.
+
+```python
+from klogr import get_logger
+
+logger = get_logger()
+
+logger.enable_dual_output("training.log")   # everything below goes to BOTH
+logger.info("epoch=12 lr=3e-4 loss=0.214")  # ...console (Rich colors)
+logger.success("training converged")         # ...AND training.log
+
+logger.disable_dual_output()                # back to console-only
+```
+
+Want it scoped to a block? `LoggingRich` doesn't expose a context
+manager directly, but the pattern is one line:
+
+```python
+logger.enable_dual_output("step.log")
+try:
+    run_step()
+finally:
+    logger.disable_dual_output()
+```
+
+The file gets the Rich-rendered output verbatim (colors stripped on the
+file side, preserved in the terminal). Check `logger.is_file_enabled()`
+to confirm dual output is on.
 
 ### Caching
 
