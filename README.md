@@ -1,19 +1,19 @@
 <div align="center">
 
-# klog
+# klogr
 
 **Batteries-included structured logger for Python data/ML projects — built on [Rich](https://github.com/Textualize/rich).**
 
-[![PyPI](https://img.shields.io/pypi/v/klog)](https://pypi.org/project/klog/)
-[![Downloads](https://img.shields.io/pypi/dm/klog)](https://pypi.org/project/klog/)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://pypi.org/project/klog/)
-[![Publish](https://img.shields.io/github/actions/workflow/status/affromero/klog/publish.yml?label=publish)](https://github.com/affromero/klog/actions/workflows/publish.yml)
-[![License: MIT](https://img.shields.io/github/license/affromero/klog)](https://github.com/affromero/klog/blob/main/LICENSE.md)
+[![PyPI](https://img.shields.io/pypi/v/klogr)](https://pypi.org/project/klogr/)
+[![Downloads](https://img.shields.io/pypi/dm/klogr)](https://pypi.org/project/klogr/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://pypi.org/project/klogr/)
+[![Publish](https://img.shields.io/github/actions/workflow/status/affromero/klogr/publish.yml?label=publish)](https://github.com/affromero/klogr/actions/workflows/publish.yml)
+[![License: MIT](https://img.shields.io/github/license/affromero/klogr)](https://github.com/affromero/klogr/blob/main/LICENSE.md)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-261230?logo=ruff)](https://github.com/astral-sh/ruff)
 [![mypy](https://img.shields.io/badge/typing-mypy%20strict-blue)](http://mypy-lang.org/)
 [![jaxtyping](https://img.shields.io/badge/shapes-jaxtyping-orange)](https://github.com/patrick-kidger/jaxtyping)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/affromero/klog/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/affromero/klogr/pulls)
 
 </div>
 
@@ -38,7 +38,7 @@
     sha256sum(path) / get_cache_dir()        -->  stable on-disk caching
 ```
 
-`klog` is what you reach for when stdlib `logging.basicConfig` doesn't cut it and `print()` feels gross. It wraps Python's `logging` module with `rich.logging.RichHandler` pre-configured, adds stacklevel awareness so every line shows where it came from, and ships a handful of helpers (caching, paths, timing) that show up in every ML/data project.
+`klogr` is what you reach for when stdlib `logging.basicConfig` doesn't cut it and `print()` feels gross. It wraps Python's `logging` module with `rich.logging.RichHandler` pre-configured, adds stacklevel awareness so every line shows where it came from, and ships a handful of helpers (caching, paths, timing) that show up in every ML/data project.
 
 ## Why use it
 
@@ -53,9 +53,9 @@
 ## Install
 
 ```bash
-uv add klog
+uv add klogr
 # or
-pip install klog
+pip install klogr
 ```
 
 Requires Python ≥ 3.10. Runtime deps: `rich`, `pydantic`, `python-dotenv`, `beartype`, `jaxtyping`, `natsort`, `sha256sum`.
@@ -63,7 +63,7 @@ Requires Python ≥ 3.10. Runtime deps: `rich`, `pydantic`, `python-dotenv`, `be
 ## Quickstart
 
 ```python
-from klog import get_logger
+from klogr import get_logger
 
 logger = get_logger()
 
@@ -87,7 +87,7 @@ with ThreadPoolExecutor(max_workers=8) as pool:
 ### Logger
 
 ```python
-from klog import get_logger, LoggingRich, DEFAULT_VERBOSITY
+from klogr import get_logger, LoggingRich, DEFAULT_VERBOSITY
 
 logger = get_logger()                            # default verbosity
 quiet  = get_logger({"info": False, "debug": False})  # custom
@@ -105,21 +105,21 @@ logger.track(iter, total, description)  # progress bar
 ### Caching
 
 ```python
-from klog import lru_cache, DisableableLRUCache, get_cache_dir, sha256sum
+from klogr import lru_cache, DisableableLRUCache, get_cache_dir, sha256sum
 
 @lru_cache(maxsize=128)
 def expensive(key: str) -> bytes:
     ...
 
 # Stable on-disk paths
-cache_root = get_cache_dir()                          # ~/.cache/klog
+cache_root = get_cache_dir()                          # XDG cache root
 digest     = sha256sum("/path/to/file.bin")           # hex string
 ```
 
 ### Path helpers (local + S3 transparent)
 
 ```python
-from klog.path import (
+from klogr.path import (
     path_join, path_exists, path_mkdir, path_dirname,
     path_basename, path_glob, path_is_s3, path_open,
 )
@@ -135,7 +135,7 @@ for p in path_glob("/data/*.jpg"):
 ### Timing
 
 ```python
-from klog import get_elapsed_time
+from klogr import get_elapsed_time
 
 print(get_elapsed_time(86400 + 3661))   # '01d : 01h : 01m : 01s'
 ```
@@ -157,7 +157,7 @@ uv run examples/01_basic_logger.py
 ## Layout
 
 ```
-klog/
+klogr/
 ├── __init__.py     # public re-exports
 ├── logger.py       # LoggingRich, LoggingTable, get_logger
 ├── cache.py        # lru_cache, DisableableLRUCache, sha256sum, get_cache_dir
@@ -176,7 +176,7 @@ klog/
 uv sync
 .venv/bin/pre-commit run --all-files
 .venv/bin/pytest
-.venv/bin/mypy klog/
+.venv/bin/mypy klogr/
 ```
 
 ## License

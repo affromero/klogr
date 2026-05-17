@@ -5,8 +5,8 @@ Run with: uv run examples/05_path_helpers.py
 
 import tempfile
 
-from klog import get_logger
-from klog.path import (
+from klogr import get_logger
+from klogr.path import (
     path_basename,
     path_dirname,
     path_exists,

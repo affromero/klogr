@@ -1,9 +1,28 @@
 # Changelog
 
-All notable changes to klog are documented here.
+All notable changes to klogr are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.3] — 2026-05-17
+
+PyPI rejected the name `klog` with `400 The name 'klog' isn't allowed.`
+(likely too close to existing Linux/Go-ecosystem names). Renamed to
+`klogr` — same project, one letter different.
+
+### Changed
+
+- Package renamed `klog` → `klogr`. GitHub repo also renamed from
+  `affromero/klog` to `affromero/klogr`. Imports change accordingly:
+  `from klog import X` → `from klogr import X`.
+- README install instructions, badges, and layout diagram updated for
+  the new name.
+
+### Fixed
+
+- README incorrectly claimed `get_cache_dir()` returns `~/.cache/klog`;
+  it actually returns the XDG cache root directly. Updated the comment.
 
 ## [0.1.2] — 2026-05-15
 
@@ -44,16 +63,16 @@ with `400 Bad Request`.
 
 ## [0.1.0] — 2026-05-15
 
-First release under the new name `klog`. Previously published as `difflogtest`.
+First release under the new name `klogr`. Previously published as `difflogtest`.
 
 ### Changed
 
-- **Renamed package** from `difflogtest` to `klog`. The old name described a snapshot-test framework that is no longer part of this package.
+- **Renamed package** from `difflogtest` to `klogr`. The old name described a snapshot-test framework that is no longer part of this package.
 - **Flattened the module layout.** The old `difflogtest.logging.*` and `difflogtest.utils.*` sub-packages have been merged into top-level modules:
-  - `difflogtest.logging.core` → `klog.logger`
-  - `difflogtest.logging.cache_tools` → `klog.cache`
-  - `difflogtest.utils.strings` → `klog.time`
-  - `difflogtest.utils.path` → `klog.path/` (split into `ops`, `io`, `query`, `env`)
+  - `difflogtest.logging.core` → `klogr.logger`
+  - `difflogtest.logging.cache_tools` → `klogr.cache`
+  - `difflogtest.utils.strings` → `klogr.time`
+  - `difflogtest.utils.path` → `klogr.path/` (split into `ops`, `io`, `query`, `env`)
 - `logger.info_json` now uses stdlib `json` instead of `json5` — Pydantic-emitted JSON doesn't need comment tolerance.
 
 ### Removed
@@ -86,9 +105,9 @@ Replace every `from difflogtest...` import:
 
 | Old | New |
 |-----|-----|
-| `from difflogtest import get_logger` | `from klog import get_logger` |
-| `from difflogtest import lru_cache, sha256sum` | `from klog import lru_cache, sha256sum` |
-| `from difflogtest.utils.path import path_X` | `from klog.path import path_X` |
-| `from difflogtest.logging.core import LoggingTable` | `from klog import LoggingTable` |
+| `from difflogtest import get_logger` | `from klogr import get_logger` |
+| `from difflogtest import lru_cache, sha256sum` | `from klogr import lru_cache, sha256sum` |
+| `from difflogtest.utils.path import path_X` | `from klogr.path import path_X` |
+| `from difflogtest.logging.core import LoggingTable` | `from klogr import LoggingTable` |
 
 If you depended on `@register_unittest`, `is_unittest_mode`, or `LogReplacement` — those are gone. Use `pytest` directly.

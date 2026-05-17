@@ -3,7 +3,7 @@
 Run with: uv run examples/02_pretty_tables.py
 """
 
-from klog import LoggingTable, get_logger
+from klogr import LoggingTable, get_logger
 
 logger = get_logger()
 

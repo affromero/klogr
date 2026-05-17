@@ -10,7 +10,7 @@ Run with: uv run examples/03_progress_tracking.py
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from klog import get_logger
+from klogr import get_logger
 
 logger = get_logger()
 

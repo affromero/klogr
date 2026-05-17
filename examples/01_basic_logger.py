@@ -3,7 +3,7 @@
 Run with: uv run examples/01_basic_logger.py
 """
 
-from klog import get_logger
+from klogr import get_logger
 
 logger = get_logger()
 

@@ -1,6 +1,6 @@
 # Examples
 
-Runnable scripts demonstrating each surface of `klog`. Run any one with:
+Runnable scripts demonstrating each surface of `klogr`. Run any one with:
 
 ```bash
 uv run examples/<name>.py

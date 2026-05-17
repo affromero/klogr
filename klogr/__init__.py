@@ -1,7 +1,7 @@
-"""klog — batteries-included structured logger built on Rich.
+"""klogr — batteries-included structured logger built on Rich.
 
 Public API. Most users want :func:`get_logger`. Path helpers live under
-:mod:`klog.path`.
+:mod:`klogr.path`.
 """
 
 from .cache import (

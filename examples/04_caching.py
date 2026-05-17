@@ -5,7 +5,7 @@ Run with: uv run examples/04_caching.py
 
 import time
 
-from klog import get_cache_dir, get_logger, lru_cache, sha256sum
+from klogr import get_cache_dir, get_logger, lru_cache, sha256sum
 
 logger = get_logger()
 

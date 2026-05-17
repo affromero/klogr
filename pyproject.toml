@@ -32,18 +32,18 @@ description = "Batteries-included structured logger for Python data/ML projects,
 keywords = ["cache", "logging", "ml", "path", "rich", "s3"]
 license = "MIT"
 license-files = ["LICENSE.md"]
-name = "klog"
+name = "klogr"
 readme = "README.md"
 requires-python = ">=3.10"
-version = "0.1.2"
+version = "0.1.3"
 
 [project.urls]
-Changelog = "https://github.com/affromero/klog/blob/main/CHANGELOG.md"
-Homepage = "https://github.com/affromero/klog"
-Issues = "https://github.com/affromero/klog/issues"
+Changelog = "https://github.com/affromero/klogr/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/affromero/klogr"
+Issues = "https://github.com/affromero/klogr/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["klog"]
+packages = ["klogr"]
 
 [tool.mypy]
 check_untyped_defs = true
