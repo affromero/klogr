@@ -5,6 +5,31 @@ All notable changes to klogr are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] — 2026-05-17
+
+### Added
+
+- README: documented `logger.enable_dual_output(file_path)` — one line
+  to mirror every log line into a file in addition to the Rich console.
+  Listed it in the "Why use it" overview too.
+
+## [0.1.5] — 2026-05-17
+
+### Added
+
+- `LICENSE.md` (MIT). The previous 0.1.x releases had `license = "MIT"`
+  declared in `pyproject.toml` but the actual LICENSE file wasn't in
+  the repo, so the wheel shipped without the license text.
+
+## [0.1.4] — 2026-05-17
+
+### Fixed
+
+- `sha256sum>=2024.4.26` → `sha256sum>=2022.6.11`. The 2024 lower bound
+  broke `uv sync` on macOS (`hax-cv[mps]` split) where only the older
+  `sha256sum` wheel is published. klogr only uses the long-stable
+  `sha256sum.sha256sum()` function, available since the 2022 versions.
+
 ## [0.1.3] — 2026-05-17
 
 PyPI rejected the name `klog` with `400 The name 'klog' isn't allowed.`
