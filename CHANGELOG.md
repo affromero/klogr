@@ -5,6 +5,33 @@ All notable changes to klogr are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-17
+
+Minor bump: four new methods on `LoggingRich`, all built around the
+"one-line ergonomic" spirit of the library. No breaking changes — old
+APIs still work.
+
+### Added
+
+- **`logger.to_file(path)`** — context-manager form of
+  `enable_dual_output`. Mirror every log line to a file for the
+  duration of a `with` block, then auto-restore console-only on exit.
+- **`logger.timed(description)`** — context manager that logs
+  `▶ description` on entry and `✓ description — Hd : Hh : Mm : Ss`
+  on exit. Drops the manual `perf_counter()` boilerplate for
+  benchmarking blocks.
+- **`logger.kv(**fields)`** — one-line key=value logging at INFO
+  level. Renders `epoch=12 lr=0.0003 loss=0.214` with consistent
+  blue-key / gold-value coloring. Common pattern in training scripts.
+- **`logger.exception(msg)`** documented in the README — the method
+  already existed, but the dual-output section now points at it
+  alongside the new context managers.
+
+### Notes
+
+`logger.exception` was already part of `LoggingRich`; this release
+just surfaces it in the README example set.
+
 ## [0.1.6] — 2026-05-17
 
 ### Added

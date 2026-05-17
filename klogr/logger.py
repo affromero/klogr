@@ -772,6 +772,72 @@ class LoggingRich:
                 RICH_OMIT_REPEATED_TIMES
             )
 
+    @contextlib.contextmanager
+    def to_file(
+        self,
+        file_path: str | Path,
+        **kwargs: Any,
+    ) -> Any:
+        """Context-manager form of :meth:`enable_dual_output`.
+
+        Mirror every log line to ``file_path`` for the duration of the
+        ``with`` block, then restore console-only output on exit.
+
+        Example:
+            >>> with logger.to_file("step.log"):
+            ...     logger.info("written to console AND step.log")
+
+        """
+        self.enable_dual_output(file_path, **kwargs)
+        try:
+            yield self
+        finally:
+            self.disable_dual_output()
+
+    @contextlib.contextmanager
+    def timed(self, description: str) -> Any:
+        """Log how long a block of work takes.
+
+        Logs ``▶ {description}`` on entry and
+        ``✓ {description} — Hd : Hh : Mm : Ss`` on exit, using the
+        :func:`get_elapsed_time` formatter.
+
+        Example:
+            >>> with logger.timed("train epoch"):
+            ...     train_one_epoch()
+
+        """
+        self.info(f"▶ {description}")
+        start = datetime.now(tz=timezone.utc)
+        try:
+            yield
+        finally:
+            elapsed = (datetime.now(tz=timezone.utc) - start).total_seconds()
+            days, rem = divmod(elapsed, 86400)
+            hours, rem = divmod(rem, 3600)
+            minutes, seconds = divmod(rem, 60)
+            formatted = (
+                f"{int(days):02d}d : {int(hours):02d}h : "
+                f"{int(minutes):02d}m : {int(seconds):02d}s"
+            )
+            self.success(f"✓ {description} — {formatted}")
+
+    def kv(self, **fields: Any) -> None:
+        """Log a single line of key=value pairs at INFO level.
+
+        Renders ``epoch=12 lr=3e-4 loss=0.21`` with the keys colored
+        blue and values colored gold. Common pattern for ML training
+        scripts where each step emits one structured line.
+
+        Example:
+            >>> logger.kv(epoch=12, lr=3e-4, loss=0.214)
+
+        """
+        pairs = " ".join(
+            f"[blue]{k}[/blue]=[gold3]{v}[/gold3]" for k, v in fields.items()
+        )
+        self.info(pairs)
+
     def get_last_line(self, name: str, msg: str) -> str:
         """Read and format the last line from a file with colors and styles based on its content."""
         if self.console.file.name == "<stdout>":

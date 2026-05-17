@@ -49,7 +49,10 @@
 - **`@lru_cache` with a disable hook** — flip an env var to bypass caching globally (handy for tests).
 - **Path helpers that handle S3** — `path_join`, `path_exists`, `path_mkdir`, etc. work whether you pass `/tmp/foo` or `s3://bucket/foo`.
 - **`get_elapsed_time(seconds)`** — formats float seconds as `00d : 01h : 12m : 03s`.
-- **One-liner dual output** — `logger.enable_dual_output("run.log")` and every log line goes to BOTH the Rich-formatted console AND the log file. Perfect for batch jobs you also want to scroll back through.
+- **One-liner dual output** — `with logger.to_file("run.log"):` mirrors every log line to BOTH the Rich-formatted console AND the log file. Perfect for batch jobs.
+- **Timed blocks** — `with logger.timed("train epoch"):` prints entry + exit + elapsed, no `time.perf_counter()` boilerplate.
+- **`logger.exception("msg")`** — like stdlib `logging.exception` but the traceback is rendered by Rich.
+- **`logger.kv(epoch=12, lr=3e-4)`** — one-line structured key=value logging for training loops.
 
 ## Install
 
@@ -105,35 +108,52 @@ logger.track(iter, total, description)  # progress bar
 
 ### Log to console AND a file at the same time
 
-One line to mirror everything you log into a file — handy for CI logs,
-batch jobs, or anything you want to scroll back through later.
-
 ```python
 from klogr import get_logger
 
 logger = get_logger()
 
-logger.enable_dual_output("training.log")   # everything below goes to BOTH
-logger.info("epoch=12 lr=3e-4 loss=0.214")  # ...console (Rich colors)
-logger.success("training converged")         # ...AND training.log
+# Scoped to a block — auto-restores console-only on exit:
+with logger.to_file("step.log"):
+    logger.info("written to console AND step.log")
+    logger.success("step done")
+# back to console-only here
 
-logger.disable_dual_output()                # back to console-only
-```
-
-Want it scoped to a block? `LoggingRich` doesn't expose a context
-manager directly, but the pattern is one line:
-
-```python
-logger.enable_dual_output("step.log")
-try:
-    run_step()
-finally:
-    logger.disable_dual_output()
+# Or set/unset manually if you need broader control:
+logger.enable_dual_output("training.log")
+logger.info("epoch=12")
+logger.disable_dual_output()
 ```
 
 The file gets the Rich-rendered output verbatim (colors stripped on the
 file side, preserved in the terminal). Check `logger.is_file_enabled()`
 to confirm dual output is on.
+
+### Time a block
+
+```python
+with logger.timed("train epoch"):
+    train_one_epoch()
+# logs:  ▶ train epoch
+#        ✓ train epoch — 00d : 00h : 12m : 03s
+```
+
+### Structured key=value lines
+
+```python
+logger.kv(epoch=12, lr=3e-4, loss=0.214)
+# logs:  epoch=12 lr=0.0003 loss=0.214  (with rich coloring)
+```
+
+### Log an exception with a Rich traceback
+
+```python
+try:
+    do_work()
+except Exception:
+    logger.exception("do_work failed")
+# logs the message at ERROR, then a syntax-highlighted traceback
+```
 
 ### Caching
 
