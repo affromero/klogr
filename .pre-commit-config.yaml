@@ -44,7 +44,7 @@ repos:
     #       # pre-commit's default_language_version, see
     #       # https://pre-commit.com/#top_level-default_language_version
     #         language_version: python3.10
-    #         exclude: ^dependencies/|^experiments/dependencies/|^experiments/|uv\.lock|tools/generative/pipelines/|configs/hax_ml/|unittest_logs/
+    #         exclude: ^dependencies/|^experiments/dependencies/|^experiments/|uv\.lock|tools/generative/pipelines/|configs/hax_ml/
     #         args: [--line-length=79, --target-version=py310, --quiet]
 
     # - repo: https://github.com/PyCQA/docformatter # there is an issue with the latest version and python_env - uncomment as soon as possible
@@ -52,7 +52,7 @@ repos:
     #   hooks:
     #       - id: docformatter
     #         language: python
-    #         exclude: ^dependencies/|^experiments/dependencies/|^experiments/|uv\.lock|tools/generative/pipelines/|configs/hax_ml/|unittest_logs/
+    #         exclude: ^dependencies/|^experiments/dependencies/|^experiments/|uv\.lock|tools/generative/pipelines/|configs/hax_ml/
     #         args: [--in-place, --wrap-descriptions, '120']
 
     - repo: https://github.com/jumanjihouse/pre-commit-hook-yamlfmt
