@@ -35,27 +35,47 @@ class DashboardDisplay:
     active: bool
     _dashboard: RenderableType | None
     _bars: tuple[Progress, ...]
+    _statuses: tuple[RenderableType, ...]
 
-    def __init__(self, console: Console) -> None:
+    def __init__(self, console: Console, *, transient: bool = False) -> None:
         """Prepare the display without writing until content becomes available."""
         self.console = console
         self.active = True
         self._dashboard = None
         self._bars = ()
+        self._statuses = ()
         self.live = Live(
             console=console,
             get_renderable=self.render,
             redirect_stdout=False,
             redirect_stderr=False,
+            transient=transient,
         )
 
     def render(self) -> Group:
         """Render the dashboard and every attached progress bar."""
         return (
-            Group(self._dashboard, *self._bars)
+            Group(self._dashboard, *self._bars, *self._statuses)
             if self._dashboard is not None
-            else Group(*self._bars)
+            else Group(*self._bars, *self._statuses)
         )
+
+    def add_status(self, status: RenderableType) -> None:
+        """Show a timed status alongside other live content."""
+        self._statuses = (*self._statuses, status)
+        self.refresh()
+
+    def remove_status(self, status: RenderableType) -> None:
+        """Remove the status from the live display."""
+        self._statuses = tuple(
+            item for item in self._statuses if item is not status
+        )
+        self.refresh()
+
+    @property
+    def has_statuses(self) -> bool:
+        """Return whether the display still owns any timed statuses."""
+        return bool(self._statuses)
 
     @property
     def interactive(self) -> bool:
@@ -102,6 +122,7 @@ class DashboardDisplay:
             self.live.stop()
         finally:
             self._bars = ()
+            self._statuses = ()
 
 
 class DashboardProgress(Progress):
