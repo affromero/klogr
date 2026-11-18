@@ -69,6 +69,8 @@ Requires Python ≥ 3.10. Runtime deps: `rich`, `pydantic`, `python-dotenv`, `be
 
 ## Quickstart
 
+![Terminal demo of klogr log levels and formatted data](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/logging.gif)
+
 ```python
 from klogr import get_logger
 
@@ -146,6 +148,8 @@ An inner route replaces the outer route until it exits. Routes are local to
 the current execution context, so concurrent tasks can use the same logger
 with different destinations. The caller opens and closes each stream.
 Interactive progress and prompts use the logger's console.
+
+![Terminal demo of a progress bar tracking parallel work](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/progress.gif)
 
 Use `logger.route_file(path, mode=FileMode.EXCLUSIVE)` when the scope should
 open and close the file. Import `FileMode` from `klogr` and choose
