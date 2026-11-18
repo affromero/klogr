@@ -3,6 +3,7 @@
 import os
 import shutil
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import IO, Any
 
 from rich import print as pprint
@@ -302,3 +303,36 @@ def path_write_text(path: str | Path, text: str) -> None:
 
     """
     Path(path).write_text(text)
+
+
+def path_write_text_atomic(
+    path: str | Path, text: str, *, encoding: str = "utf-8"
+) -> None:
+    """Write text to a sibling temporary file and replace the destination.
+
+    Uses UTF-8 by default and preserves the supplied line endings. The new
+    file uses the temporary file's private permissions on POSIX (at most
+    0600). A destination symlink is replaced in place.
+
+    The destination changes only after the temporary file is written and
+    closed. The replacement is atomic on filesystems that support atomic
+    rename. This function does not sync the file or its parent directory to
+    disk, so it offers no crash durability guarantee.
+    """
+    destination = Path(path)
+    staging_path = None
+    try:
+        with NamedTemporaryFile(
+            mode="w",
+            encoding=encoding,
+            newline="",
+            dir=destination.parent,
+            delete=False,
+        ) as staging_file:
+            staging_path = Path(staging_file.name)
+            staging_file.write(text)
+        staging_path.replace(destination)
+        staging_path = None
+    finally:
+        if staging_path is not None:
+            staging_path.unlink(missing_ok=True)
