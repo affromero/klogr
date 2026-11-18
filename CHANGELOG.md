@@ -5,6 +5,37 @@ All notable changes to klogr are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-17
+
+### Added
+
+- Route logs to caller-owned streams with independent formatting and
+  context-local scopes. Open scoped log files in exclusive, append, or
+  overwrite mode. ([#9](https://github.com/affromero/klogr/pull/9),
+  [#3](https://github.com/affromero/klogr/issues/3),
+  [#7](https://github.com/affromero/klogr/issues/7))
+- Report stage and frame progress as JSON Lines or text. Interactive
+  terminals can render a custom Rich dashboard, and text logs retain
+  transitions while throttling repeated running updates.
+  ([#9](https://github.com/affromero/klogr/pull/9),
+  [#4](https://github.com/affromero/klogr/issues/4),
+  [#6](https://github.com/affromero/klogr/issues/6))
+- Publish text files through atomic replacement with temporary-file cleanup
+  on failure. ([#9](https://github.com/affromero/klogr/pull/9),
+  [#5](https://github.com/affromero/klogr/issues/5))
+
+### Fixed
+
+- Apply partial logger verbosity overrides and preserve caller locations
+  for forced JSON logs. Support keyword construction of log tables.
+  ([#9](https://github.com/affromero/klogr/pull/9))
+- Honor least-recently-used eviction, restore nested cache scopes, and
+  skip building diagnostics when debug logging is disabled.
+  ([#9](https://github.com/affromero/klogr/pull/9))
+- Preserve external symlink targets during directory removal and remove
+  literal suffixes without trimming the filename stem.
+  ([#9](https://github.com/affromero/klogr/pull/9))
+
 ## [0.2.2] - 2026-11-17
 
 ### Fixed
