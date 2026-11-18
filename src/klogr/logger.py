@@ -187,6 +187,11 @@ class LoggingRich:
         init=False,
         repr=False,
     )
+    _dashboard: ContextVar[_progress.DashboardDisplay | None] = field(
+        default_factory=lambda: ContextVar("klogr_dashboard", default=None),
+        init=False,
+        repr=False,
+    )
 
     _logged_once: set[str] = field(default_factory=set)
     """ Set of messages that have been logged once. """
@@ -259,6 +264,7 @@ class LoggingRich:
         console = kwargs.pop("console", self.console)
         with _progress.make_progress(
             console=console,
+            display=self._dashboard_for(console),
             transient=transient,
             **kwargs,
         ) as prog:
@@ -282,7 +288,25 @@ class LoggingRich:
                     prog.update(task, advance=1)
 
         """
-        return _progress.make_progress(console=self.console)
+        return _progress.make_progress(
+            console=self.console, display=self._dashboard_for(self.console)
+        )
+
+    def _dashboard_for(
+        self, console: Console
+    ) -> _progress.DashboardDisplay | None:
+        display = self._dashboard.get()
+        if (
+            display is not None
+            and display.interactive
+            and console is display.console
+            and any(
+                destination is console
+                for destination in self._message_consoles
+            )
+        ):
+            return display
+        return None
 
     def panel(
         self,
@@ -699,21 +723,36 @@ class LoggingRich:
         ):
             yield self
 
+    @contextlib.contextmanager
     def progress_events(
         self,
         *,
         dashboard: Callable[[ProgressEvent], RenderableType] | None = None,
         jsonl: TextIO | None = None,
         interval: float = 1.0,
-    ) -> contextlib.AbstractContextManager[Callable[[ProgressEvent], None]]:
+    ) -> Iterator[Callable[[ProgressEvent], None]]:
         """Publish progress events to the active route and optional JSON Lines."""
-        return report_progress(
+        display = (
+            _progress.DashboardDisplay(self.console)
+            if dashboard is not None
+            else None
+        )
+        publish = report_progress(
             destinations=lambda: self._message_consoles,
-            terminal=self.console,
+            display=display,
             dashboard=dashboard,
             jsonl=jsonl,
             interval=interval,
         )
+        if display is None:
+            yield publish
+            return
+        token = self._dashboard.set(display)
+        try:
+            yield publish
+        finally:
+            self._dashboard.reset(token)
+            display.close()
 
     def unittest_logger(self, file_str: str) -> None:
         """Initialize a console object for logging unit test results."""

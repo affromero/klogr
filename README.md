@@ -194,6 +194,11 @@ retain transitions, completion, and failure. Pass a `dashboard` callback
 that returns a Rich renderable to customize the interactive terminal display.
 Redirected sessions and file sinks receive plain progress lines.
 
+Inside an interactive dashboard scope, `logger.track()` and
+`logger.progress()` add progress bars to the same live display.
+`logger.print()` and other log methods still write to the active text
+destinations. JSON Lines records come from events passed to `publish()`.
+
 ### Format a training metrics table
 
 ![Terminal recording of a training metrics table with colored columns](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/table.gif)

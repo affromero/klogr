@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from contextlib import ExitStack, contextmanager
 from enum import Enum
 from math import isfinite
 from time import monotonic
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from rich.live import Live
 
 from klogr._streams import console_stream
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
     from typing import TextIO
 
     from rich.console import Console, RenderableType
+
+    from klogr._progress import DashboardDisplay
 
 
 class ProgressStatus(str, Enum):
@@ -65,68 +65,52 @@ class ProgressEvent(BaseModel):
         return line
 
 
-@contextmanager
 def report_progress(
     *,
     destinations: Callable[[], tuple[Console, ...]],
-    terminal: Console,
+    display: DashboardDisplay | None,
     dashboard: Callable[[ProgressEvent], RenderableType] | None,
     jsonl: TextIO | None,
     interval: float,
-) -> Iterator[Callable[[ProgressEvent], None]]:
+) -> Callable[[ProgressEvent], None]:
     """Yield a reporter with optional live rendering and text throttling."""
     if not isfinite(interval) or interval < 0:
         message = "progress interval must be finite and nonnegative"
         raise ValueError(message)
-    live = None
     last_text: dict[str, tuple[ProgressStatus, float]] = {}
 
-    with ExitStack() as scope:
+    def publish(event: ProgressEvent) -> None:
+        consoles = destinations()
+        interactive = (
+            display is not None
+            and display.interactive
+            and any(console is display.console for console in consoles)
+        )
+        if jsonl is not None:
+            if any(console_stream(console) is jsonl for console in consoles):
+                message = "JSON Lines requires a separate output stream"
+                raise ValueError(message)
+            jsonl.write(event.model_dump_json() + "\n")
+            jsonl.flush()
+        if interactive and display is not None and dashboard is not None:
+            display.update(dashboard(event))
 
-        def publish(event: ProgressEvent) -> None:
-            nonlocal live
-            consoles = destinations()
-            interactive = (
-                dashboard is not None
-                and terminal.is_terminal
-                and terminal.is_interactive
-                and any(console is terminal for console in consoles)
-            )
-            if jsonl is not None:
-                if any(
-                    console_stream(console) is jsonl for console in consoles
-                ):
-                    message = "JSON Lines requires a separate output stream"
-                    raise ValueError(message)
-                jsonl.write(event.model_dump_json() + "\n")
-                jsonl.flush()
-            if interactive and dashboard is not None:
-                renderable = dashboard(event)
-                if live is None:
-                    live = scope.enter_context(
-                        Live(
-                            renderable,
-                            console=terminal,
-                            auto_refresh=False,
-                            redirect_stdout=False,
-                            redirect_stderr=False,
-                        )
-                    )
-                else:
-                    live.update(renderable, refresh=True)
-
-            now = monotonic()
-            previous = last_text.get(event.stage)
-            if (
-                event.status is ProgressStatus.RUNNING
-                and previous is not None
-                and previous[0] is event.status
-                and now - previous[1] < interval
+        now = monotonic()
+        previous = last_text.get(event.stage)
+        if (
+            event.status is ProgressStatus.RUNNING
+            and previous is not None
+            and previous[0] is event.status
+            and now - previous[1] < interval
+        ):
+            return
+        last_text[event.stage] = (event.status, now)
+        for console in consoles:
+            if not (
+                interactive
+                and display is not None
+                and console is display.console
             ):
-                return
-            last_text[event.stage] = (event.status, now)
-            for console in consoles:
-                if not (interactive and console is terminal):
-                    console.print(event.text(), markup=False, highlight=False)
+                console.print(event.text(), markup=False, highlight=False)
 
-        yield publish
+    return publish
