@@ -179,8 +179,6 @@ def show_all_cache_info(
     func: Callable[..., object] | None = None,
 ) -> None:
     """Show cache info for all cached functions."""
-    msg = "-" * 30 + "\n"
-    msg += "Cached functions:\n" if func is None else "Cached function: "
     if func is None:
         funcs = _cached_functions
     else:
@@ -189,12 +187,14 @@ def show_all_cache_info(
             name = getattr(func, "__qualname__", type(func).__qualname__)
             error = f"Function {name} not found in cache"
             raise ValueError(error)
-    for _func in funcs:
-        # hits means the function was called with the same arguments
-        # misses means the function was called with different arguments
-        msg += _get_cached_function_info(_func) + "\n"
-    msg += "-" * 30 + "\n"
-    logger.debug(msg, stack_offset=2)
+
+    def report() -> str:
+        label = "Cached functions:\n" if func is None else "Cached function: "
+        details = "\n".join(_get_cached_function_info(item) for item in funcs)
+        separator = "-" * 30
+        return f"{separator}\n{label}{details}\n{separator}\n"
+
+    logger.debug(report, stack_offset=1)
 
 
 def lru_cache(
@@ -462,10 +462,13 @@ def lru_cache(
                 def cached_wrapper(*args: object, **kwargs: object) -> object:
                     """Wrap that shows cache info on execution and preserves cache functionality."""
                     output = cached_func(*args, **kwargs)
-                    info = cached_func.cache_info()
                     if print_cache_info:
                         show_all_cache_info(cached_wrapper)
-                    if max_misses != -1 and info.misses > max_misses:
+                    if (
+                        max_misses != -1
+                        and (info := cached_func.cache_info()).misses
+                        > max_misses
+                    ):
                         msg = f"Function {name} has {info.misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
                         raise ValueError(msg)
                     return output

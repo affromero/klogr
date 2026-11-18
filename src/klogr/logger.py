@@ -438,15 +438,28 @@ class LoggingRich:
         )
 
     @override_from_dotenv("LOG_DEBUG")
-    def debug(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log a debug message."""
+    def debug(
+        self,
+        msg: str | Callable[[], str],
+        *,
+        force: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        """Log debug text or build it on demand when enabled."""
         self._emit_level("debug", msg, force=force, options=kwargs)
 
     def _emit_level(
-        self, level: str, message: str, *, force: bool, options: dict[str, Any]
+        self,
+        level: str,
+        message: str | Callable[[], str],
+        *,
+        force: bool,
+        options: dict[str, Any],
     ) -> None:
         if not (force or self.verbosity[level]):
             return
+        if not isinstance(message, str):
+            message = message()
         stack_offset = options.pop("stack_offset", 0) + self.stack_offset + 2
         if level == "debug":
             stack_offset += 1  # The dotenv decorator adds a frame.

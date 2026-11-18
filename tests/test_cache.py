@@ -3,6 +3,8 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase, TestCase
@@ -34,7 +36,13 @@ class CacheConfigurationTests(TestCase):
 
     def test_report_accepts_the_public_sync_wrapper(self) -> None:
         """Find cache statistics by the function returned by the decorator."""
-        with patch.dict(os.environ, {"DISABLE_LRU_CACHE": "False"}):
+        output = StringIO()
+        with (
+            patch.dict(
+                os.environ, {"DISABLE_LRU_CACHE": "False", "LOG_DEBUG": "True"}
+            ),
+            redirect_stdout(output),
+        ):
 
             @lru_cache()
             def load() -> int:
@@ -42,6 +50,7 @@ class CacheConfigurationTests(TestCase):
 
             assert load() == 42
             show_all_cache_info(load)
+        assert "misses=1" in output.getvalue()
 
     def test_missing_dotenv_keeps_caching_enabled(self) -> None:
         """Cache calls without requiring a local config file."""

@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from unittest import IsolatedAsyncioTestCase, TestCase
+from unittest.mock import patch
 
 from rich.console import Console, ConsoleOptions, RenderResult
 
@@ -24,6 +25,22 @@ class _DestinationLabel:
 
 class LoggerRoutingTests(TestCase):
     """Exercise terminal and plain text routes and their lifetimes."""
+
+    def test_debug_builds_lazy_message_only_when_emitted(self) -> None:
+        """Skip message construction when debugging is disabled."""
+        stream = StringIO()
+        logger = LoggingRich(console=Console(file=stream))
+
+        def message() -> str:
+            return "computed diagnostic"
+
+        def unexpected() -> str:
+            self.fail("Disabled debug evaluated its message")
+
+        with patch.dict(os.environ, {"LOG_DEBUG": "False"}):
+            logger.debug(unexpected)
+            logger.debug(message, force=True)
+        assert "computed diagnostic" in stream.getvalue()
 
     def test_forced_json_uses_the_callers_source_location(self) -> None:
         """Emit forced messages even with both levels disabled."""
