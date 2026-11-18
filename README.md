@@ -243,6 +243,33 @@ with logger.timed("train epoch"):
 #        ✓ train epoch — 00d : 00h : 12m : 03s
 ```
 
+### Show a timed status while waiting
+
+For a long-running wait, use `timed_status()` to display a spinner and an
+elapsed timer. Call `wait.update("pending")` when the remote status changes.
+The terminal keeps updating the clock between polls.
+
+```python
+with logger.timed_status("Creating image", entry=True, interval=30) as wait:
+    wait.update("pending")
+    wait.update("running", percent=60)
+```
+
+`interval` throttles plain-text updates from `update()`. Leave it unset
+for entry and outcome messages only. The default follows the logger's
+INFO verbosity. Use `enabled=False` for a quiet scope. Completion reports
+success, failure, or cancellation. A supplied `service_eta` is labeled
+as such. Use `logger.progress()` when you have a reliable total and want
+Rich's calculated estimate. Timed waits can share an active dashboard and
+nest or overlap in asyncio tasks on one logger. Keep status updates on the
+owning thread.
+
+### Open source locations in an editor
+
+Set `get_logger(plain_source=True)` to expose absolute `path:line` locations
+for terminal link detection. For long paths, give the source column enough
+terminal width. Rich hyperlinks remain the default.
+
 ### Structured key=value lines
 
 ```python

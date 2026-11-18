@@ -14,7 +14,7 @@ from dataclasses import field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import TYPE_CHECKING, Any
 
 import dotenv
@@ -26,8 +26,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from klogr import _progress
+from klogr._source import enable_plain_source
 from klogr._streams import FileMode, MessageRoute, StreamMirror
 from klogr._streams import StdoutDuplicator as _StdoutDuplicator
+from klogr._waiting import TimedStatus
 from klogr.events import ProgressEvent, report_progress
 from klogr.time import get_elapsed_time
 
@@ -178,6 +180,9 @@ class LoggingRich:
     stdout_duplicator: _StdoutDuplicator | None = None
     """ Standard stream duplicator for file output when enabled. """
 
+    plain_source: bool = field(default=False, kw_only=True)
+    """Show absolute source locations without embedded terminal links."""
+
     _stream_mirror: StreamMirror | None = field(
         default=None, init=False, repr=False
     )
@@ -191,6 +196,9 @@ class LoggingRich:
         default_factory=lambda: ContextVar("klogr_dashboard", default=None),
         init=False,
         repr=False,
+    )
+    _wait_display: _progress.DashboardDisplay | None = field(
+        default=None, init=False, repr=False
     )
 
     _logged_once: set[str] = field(default_factory=set)
@@ -516,11 +524,8 @@ class LoggingRich:
         return "\n" + l_string
 
     def preprocess_msg(self, msg: str) -> str:
-        """Preprocess a given message by performing several transformations."""
+        """Return the message before rendering."""
         return msg
-        # replace $HOME with ~ for interuser compatibility
-        # msg = msg.replace(Path.cwd().as_posix(), ".")
-        # return msg.replace(os.getenv("HOME", "~"), "~")
 
     def print_once(self, msg: Any, **kwargs: Any) -> None:
         """Print a preprocessed message to the console once."""
@@ -617,9 +622,13 @@ class LoggingRich:
             progress.console._log_render.omit_repeated_times = (
                 RICH_OMIT_REPEATED_TIMES
             )
+            if self.plain_source:
+                enable_plain_source(progress.console)
             progress.console.log(_msg, **kwargs)
         else:
             for console in self._message_consoles:
+                if self.plain_source:
+                    enable_plain_source(console)
                 console.log(_msg, **kwargs)
 
     def log_unittest(
@@ -670,6 +679,75 @@ class LoggingRich:
     def status(self, msg: str, **kwargs: Any) -> Any:
         """Display a status message along with any additional keyword arguments in the console."""
         return self.console.status(msg, **kwargs)
+
+    @contextlib.contextmanager
+    def timed_status(
+        self,
+        label: str,
+        *,
+        enabled: bool | None = None,
+        entry: bool = False,
+        completion: bool = True,
+        interval: float | None = None,
+    ) -> Iterator[TimedStatus]:
+        """Show a live timer and optionally report text updates on the active route."""
+        visible = (
+            self.verbosity.get("info", True) if enabled is None else enabled
+        )
+        display = self._dashboard_for(self.console) if visible else None
+        if (
+            visible
+            and display is None
+            and self.console.is_terminal
+            and self.console.is_interactive
+            and any(
+                console is self.console for console in self._message_consoles
+            )
+        ):
+            if self._wait_display is None:
+                self._wait_display = _progress.DashboardDisplay(
+                    self.console, transient=True
+                )
+            display = self._wait_display
+
+        def write(message: str, *, persistent: bool) -> None:
+            if visible:
+                for console in self._message_consoles:
+                    if (
+                        persistent
+                        or display is None
+                        or console is not display.console
+                    ):
+                        console.print(message, markup=False, highlight=False)
+
+        status = TimedStatus(
+            label, clock=monotonic, write=write, interval=interval
+        )
+        token = self._dashboard.set(display) if display is not None else None
+        try:
+            if display is not None:
+                display.add_status(status)
+            with status.outcomes(entry=entry, completion=completion):
+                yield status
+        finally:
+            if token is not None:
+                self._dashboard.reset(token)
+            if display is not None:
+                if sys.exc_info()[0] is None:
+                    self._remove_wait_status(display, status)
+                else:
+                    with contextlib.suppress(Exception):
+                        self._remove_wait_status(display, status)
+
+    def _remove_wait_status(
+        self, display: _progress.DashboardDisplay, status: TimedStatus
+    ) -> None:
+        try:
+            display.remove_status(status)
+        finally:
+            if display is self._wait_display and not display.has_statuses:
+                self._wait_display = None
+                display.close()
 
     @property
     def _active_route(self) -> MessageRoute | None:
@@ -893,17 +971,24 @@ def get_logger(
     verbosity: dict[str, bool] | None = None,
     *,
     stderr: bool = False,
+    plain_source: bool = False,
 ) -> LoggingRich:
     """Return a cached logger with optional verbosity overrides and stderr."""
     levels = DEFAULT_VERBOSITY | (verbosity or {})
-    return _get_cached_logger(frozenset(levels.items()), stderr=stderr)
+    return _get_cached_logger(
+        frozenset(levels.items()), stderr=stderr, plain_source=plain_source
+    )
 
 
 @lru_cache(maxsize=128)
 def _get_cached_logger(
-    levels: frozenset[tuple[str, bool]], *, stderr: bool
+    levels: frozenset[tuple[str, bool]], *, stderr: bool, plain_source: bool
 ) -> LoggingRich:
-    return LoggingRich(verbosity=dict(levels), console=Console(stderr=stderr))
+    return LoggingRich(
+        verbosity=dict(levels),
+        console=Console(stderr=stderr),
+        plain_source=plain_source,
+    )
 
 
 # Preserve the runtime cache controls exposed by the previous decorator.
