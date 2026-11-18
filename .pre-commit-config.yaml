@@ -202,9 +202,10 @@ repos:
             types_or: [python, pyi]
             exclude: uv\.lock
             require_serial: true
+            pass_filenames: false
             # args: [--strict, --ignore-missing-imports]
             args: [--ignore-missing-imports, --scripts-are-modules, --install-types, --non-interactive, --warn-unused-ignores, --show-error-codes, --check-untyped-defs,
-                --disallow-incomplete-defs, --explicit-package-bases, --warn-redundant-casts, --strict-equality, --strict-equality-for-none, --follow-untyped-imports]
+                --disallow-incomplete-defs, --explicit-package-bases, --warn-redundant-casts, --strict-equality, --strict-equality-for-none, --follow-untyped-imports, src/klogr]
             additional_dependencies:
                 - pydantic
                 - types-requests

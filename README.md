@@ -227,7 +227,7 @@ uv run examples/01_basic_logger.py
 ## Layout
 
 ```
-klogr/
+src/klogr/
 ├── __init__.py     # public re-exports
 ├── logger.py       # LoggingRich, LoggingTable, get_logger
 ├── cache.py        # lru_cache, DisableableLRUCache, sha256sum, get_cache_dir
@@ -246,7 +246,7 @@ klogr/
 uv sync
 .venv/bin/pre-commit run --all-files
 .venv/bin/pytest
-.venv/bin/mypy klogr/
+.venv/bin/mypy src/klogr/
 ```
 
 ## License

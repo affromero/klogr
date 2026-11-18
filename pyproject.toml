@@ -43,7 +43,7 @@ Homepage = "https://github.com/affromero/klogr"
 Issues = "https://github.com/affromero/klogr/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["klogr"]
+packages = ["src/klogr"]
 
 [tool.mypy]
 check_untyped_defs = true
@@ -52,6 +52,7 @@ disallow_untyped_defs = true
 enable_error_code = ["ignore-without-code"]
 explicit_package_bases = true
 follow_imports = "silent"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
 no_implicit_reexport = true
 plugins = ["pydantic.mypy"]
 show_error_codes = true
