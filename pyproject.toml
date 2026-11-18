@@ -6,7 +6,7 @@ requires = ["hatchling"]
 dev = ["pre-commit>=4.0.1"]
 
 [project]
-authors = [{email = "me@afromero.co", name = "Andres Romero"}]
+authors = [{ email = "me@afromero.co", name = "Andres Romero" }]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
@@ -35,7 +35,7 @@ license-files = ["LICENSE.md"]
 name = "klogr"
 readme = "README.md"
 requires-python = ">=3.10"
-version = "0.2.1"
+version = "0.2.2"
 
 [project.urls]
 Changelog = "https://github.com/affromero/klogr/blob/main/CHANGELOG.md"
