@@ -46,7 +46,7 @@ def path_replace_suffix(path: str | Path, suffix: str) -> str:
 
 def path_rstrip(path: str | Path, suffix: str) -> str:
     """Remove the suffix from a path."""
-    return str(path).rstrip(suffix)
+    return str(path).removesuffix(suffix)
 
 
 def path_resolve(path: str | Path) -> str:

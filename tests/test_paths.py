@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from klogr.path import path_remove_dir
+from klogr.path import path_remove_dir, path_rstrip
 
 
 class RemoveDirectoryTests(TestCase):
@@ -66,3 +66,12 @@ class RemoveDirectoryTests(TestCase):
 
             assert nested.is_dir()
             assert not data.exists()
+
+
+class SuffixTests(TestCase):
+    """Exercise literal path suffix handling."""
+
+    def test_removes_only_the_requested_suffix(self) -> None:
+        """Preserve trailing stem letters and ignore a nonmatching suffix."""
+        assert path_rstrip("report.txt", ".txt") == "report"
+        assert path_rstrip("report.csv", ".txt") == "report.csv"
