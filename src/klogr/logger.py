@@ -24,10 +24,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from klogr._progress import (
-    IterationsPerSecondColumn as _IterationsPerSecondColumn,
-)
-from klogr._progress import make_progress
+from klogr import _progress
 from klogr._streams import MessageRoute, StreamMirror
 from klogr._streams import StdoutDuplicator as _StdoutDuplicator
 
@@ -35,12 +32,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
     from typing import TextIO, TypeVar
 
-    from rich.progress import Progress
-
     _T = TypeVar("_T")
 
 SECRET_PLACEHOLDERS = {"INFISICAL", "AWS-SECRET"}
-IterationsPerSecondColumn = _IterationsPerSecondColumn
+IterationsPerSecondColumn = _progress.IterationsPerSecondColumn
 StdoutDuplicator = _StdoutDuplicator
 
 
@@ -256,7 +251,7 @@ class LoggingRich:
             total = len(iterable)
 
         console = kwargs.pop("console", self.console)
-        with make_progress(
+        with _progress.make_progress(
             console=console,
             transient=transient,
             **kwargs,
@@ -266,7 +261,7 @@ class LoggingRich:
                 yield item
                 prog.update(task_id, advance=1)
 
-    def progress(self) -> Progress:
+    def progress(self) -> _progress.Progress:
         """Create and return a Rich Progress context manager with a custom progress bar.
 
         Returns:
@@ -281,7 +276,7 @@ class LoggingRich:
                     prog.update(task, advance=1)
 
         """
-        return make_progress(console=self.console)
+        return _progress.make_progress(console=self.console)
 
     def panel(
         self,
@@ -611,7 +606,7 @@ class LoggingRich:
         /,
         *,
         stack_offset: int | None = None,
-        progress: Progress | None = None,
+        progress: _progress.Progress | None = None,
         force: bool = False,
         **kwargs: Any,
     ) -> None:

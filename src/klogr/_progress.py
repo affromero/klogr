@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from rich import progress
+from rich.progress import Progress
 from rich.text import Text
 
 if TYPE_CHECKING:
@@ -22,10 +23,10 @@ class IterationsPerSecondColumn(progress.ProgressColumn):
         return Text(f"{speed:.2f} it/s", style="progress.data.speed")
 
 
-def make_progress(*, console: Console, **kwargs: Any) -> progress.Progress:
+def make_progress(*, console: Console, **kwargs: Any) -> Progress:
     """Build a progress display with the shared columns."""
     kwargs.setdefault("refresh_per_second", 1)
-    return progress.Progress(
+    return Progress(
         "[progress.description]{task.description}",
         progress.BarColumn(),
         "[progress.percentage]{task.percentage:>3.0f}%",
