@@ -8,7 +8,7 @@ from typing import IO, Any
 from rich import print as pprint
 
 from .ops import path_dirname
-from .query import path_is_dir, path_is_file, path_rglob
+from .query import path_is_file, path_rglob
 
 
 def path_rename(path: str | Path, new_name: str | Path) -> None:
@@ -145,17 +145,22 @@ def path_remove_dir(
         This function is useful in removing a directory.
 
     """
-    if path_is_dir(path):
-        for file in path_rglob(path, pattern="*"):
-            if verbose:
-                pprint(f"!!![bold red]Removing {file}")
-            if path_is_file(file):
-                path_remove(file)
-        if not only_files:
-            shutil.rmtree(path)
-    elif not non_exist_ok:
-        msg = f"{path} is not a directory"
-        raise ValueError(msg)
+    directory = Path(path)
+    if directory.is_symlink() or not directory.is_dir():
+        if not non_exist_ok:
+            msg = f"{path} is not a directory that can be removed"
+            raise ValueError(msg)
+        return
+
+    if not only_files:
+        if verbose:
+            pprint(f"!!![bold red]Removing {directory}")
+        shutil.rmtree(directory)
+        return
+
+    for file in path_rglob(directory, pattern="*"):
+        if path_is_file(file):
+            path_remove(file, verbose=verbose)
 
 
 def path_copy(src: str | Path, dst: str | Path) -> str:
