@@ -108,6 +108,21 @@ logger.info_json(json_str)  # syntax-colored JSON
 logger.track(iter, total, description)  # progress bar
 ```
 
+Use `get_logger(stderr=True)` when stdout carries JSON or other machine-readable
+data. By default, logs go to stdout. Both streams normally appear in the
+terminal. Redirect stdout to a file or pipe it to another command to process the
+data separately.
+
+```python
+import json
+
+from klogr import get_logger
+
+logger = get_logger(stderr=True)
+logger.info("Processed 12 records")
+print(json.dumps({"records": 12}))
+```
+
 ### Log to console AND a file at the same time
 
 ```python
@@ -127,9 +142,9 @@ logger.info("epoch=12")
 logger.disable_dual_output()
 ```
 
-The file gets the Rich-rendered output verbatim (colors stripped on the
-file side, preserved in the terminal). Check `logger.is_file_enabled()`
-to confirm dual output is on.
+Both methods mirror writes to the logger's selected stream. The file receives
+plain text and the terminal keeps its colors. Exiting `to_file` or calling
+`disable_dual_output()` restores the original stream.
 
 ### Time a block
 

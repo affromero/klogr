@@ -72,13 +72,13 @@ DEFAULT_VERBOSITY = {
 
 
 class StdoutDuplicator:
-    """Duplicates stdout output to a file, stripping ANSI codes."""
+    """Duplicates a standard stream to a file, stripping ANSI codes."""
 
     def __init__(self, original_stdout: TextIO, file_path: str | Path) -> None:
         """Initialize StdoutDuplicator.
 
         Args:
-            original_stdout: The original stdout
+            original_stdout: The original standard stream
             file_path: Path to the log file
 
         """
@@ -86,8 +86,7 @@ class StdoutDuplicator:
         self.file_handle: TextIO = Path(file_path).open("w", encoding="utf-8")
 
     def write(self, data: str) -> int:
-        """Write to both stdout and file (stripping colors from file)."""
-        # Write to original stdout
+        """Write to the original stream and strip ANSI codes from the file."""
         result = self.original_stdout.write(data)
 
         # Write to file, stripping ANSI codes
@@ -99,7 +98,7 @@ class StdoutDuplicator:
         return result
 
     def flush(self) -> None:
-        """Flush both stdout and file."""
+        """Flush the original stream and file."""
         self.original_stdout.flush()
         self.file_handle.flush()
 
@@ -108,7 +107,7 @@ class StdoutDuplicator:
         self.file_handle.close()
 
     def __getattr__(self, name: str) -> Any:
-        """Delegate other attributes to original stdout."""
+        """Delegate other attributes to the original stream."""
         return getattr(self.original_stdout, name)
 
 
@@ -218,7 +217,11 @@ class LoggingRich:
     """ ID for the logger. """
 
     stdout_duplicator: StdoutDuplicator | None = None
-    """ Stdout duplicator for file output when enabled. """
+    """ Standard stream duplicator for file output when enabled. """
+
+    _console_before_dual_output: Console | None = field(
+        default=None, init=False, repr=False
+    )
 
     _logged_once: set[str] = field(default_factory=set)
     """ Set of messages that have been logged once. """
@@ -257,7 +260,10 @@ class LoggingRich:
 
     def is_file_enabled(self) -> bool:
         """Check if the logging file is enabled."""
-        return self.console.file.name != "<stdout>"
+        stream = self.console.file
+        return self.stdout_duplicator is not None or (
+            stream is not sys.stdout and stream is not sys.stderr
+        )
 
     def track(
         self,
@@ -703,7 +709,7 @@ class LoggingRich:
             self.stack_offset if stack_offset is None else stack_offset
         )
         msg = self.preprocess_msg(str(msg))
-        if self.console.file.name == "<stdout>":
+        if not self.is_file_enabled():
             return
         self.log(msg, **kwargs)
 
@@ -766,37 +772,39 @@ class LoggingRich:
             **kwargs: Additional arguments passed to Console constructor
 
         """
-        # Close any existing stdout duplicator
-        if self.stdout_duplicator:
-            self.stdout_duplicator.close()
-            # Restore original stdout
-            sys.stdout = self.stdout_duplicator.original_stdout
-
-        # Create stdout duplicator
-        self.stdout_duplicator = StdoutDuplicator(sys.stdout, file_path)
-
-        # Replace sys.stdout with the duplicator
-        sys.stdout = self.stdout_duplicator
-
-        # Recreate console to use the new stdout, forcing terminal mode for colors
-        console_kwargs = kwargs.copy()
-        console_kwargs["force_terminal"] = True
-        self.console = Console(**console_kwargs)
-        self.console._log_render.omit_repeated_times = RICH_OMIT_REPEATED_TIMES
+        original_console = self._console_before_dual_output or self.console
+        stream_name = "stderr" if original_console.stderr else "stdout"
+        original_stream = (
+            self.stdout_duplicator.original_stdout
+            if self.stdout_duplicator is not None
+            else getattr(sys, stream_name)
+        )
+        console = Console(
+            **(
+                kwargs
+                | {"stderr": original_console.stderr, "force_terminal": True}
+            )
+        )
+        console._log_render.omit_repeated_times = RICH_OMIT_REPEATED_TIMES
+        duplicator = StdoutDuplicator(original_stream, file_path)
+        self.disable_dual_output()
+        self._console_before_dual_output = original_console
+        self.stdout_duplicator = duplicator
+        setattr(sys, stream_name, duplicator)
+        self.console = console
 
     def disable_dual_output(self) -> None:
         """Disable logging to both console and file simultaneously."""
-        if self.stdout_duplicator:
-            self.stdout_duplicator.close()
-            # Restore original stdout
-            sys.stdout = self.stdout_duplicator.original_stdout
-            self.stdout_duplicator = None
-
-            # Recreate console with restored stdout
-            self.console = Console()
-            self.console._log_render.omit_repeated_times = (
-                RICH_OMIT_REPEATED_TIMES
-            )
+        duplicator = self.stdout_duplicator
+        original_console = self._console_before_dual_output
+        if duplicator is None or original_console is None:
+            return
+        stream_name = "stderr" if original_console.stderr else "stdout"
+        setattr(sys, stream_name, duplicator.original_stdout)
+        self.stdout_duplicator = None
+        self._console_before_dual_output = None
+        self.console = original_console
+        duplicator.close()
 
     @contextlib.contextmanager
     def to_file(
@@ -866,11 +874,15 @@ class LoggingRich:
 
     def get_last_line(self, name: str, msg: str) -> str:
         """Read and format the last line from a file with colors and styles based on its content."""
-        if self.console.file.name == "<stdout>":
+        if not self.is_file_enabled():
             return ""
 
-        # return last line of file
-        with Path(self.console.file.name, "r", encoding="utf-8").open() as f:
+        log_file = (
+            self.stdout_duplicator.file_handle
+            if self.stdout_duplicator is not None
+            else self.console.file
+        )
+        with Path(log_file.name).open(encoding="utf-8") as f:
             last_line = f.readlines()[-1].strip()
         splitname = last_line.split(msg)
         time = f"[cyan] {splitname[0]} [/cyan]" if len(splitname) > 1 else ""
@@ -889,6 +901,8 @@ class LoggingRich:
 @lru_cache(maxsize=128)
 def get_logger(
     verbosity: dict[str, bool] = DEFAULT_VERBOSITY,
+    *,
+    stderr: bool = False,
 ) -> LoggingRich:
-    """Return a cached :class:`LoggingRich` for the given verbosity."""
-    return LoggingRich(verbosity=verbosity)
+    """Return a cached logger that writes to stdout or, if requested, stderr."""
+    return LoggingRich(verbosity=verbosity, console=Console(stderr=stderr))
