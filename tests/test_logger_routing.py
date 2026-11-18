@@ -60,6 +60,17 @@ class LoggerRoutingTests(TestCase):
         assert terminal.getvalue() == "terminal view\n"
         assert log_file.getvalue() == "file view\n"
 
+    def test_route_deduplicates_current_stderr_after_redirection(self) -> None:
+        """Track terminal redirections while keeping explicit destinations."""
+        stderr, log_file = StringIO(), StringIO()
+        logger = get_logger(stderr=True)
+        with redirect_stderr(log_file), logger.route(log_file):
+            with redirect_stderr(stderr):
+                logger.print("two destinations", force=True)
+            logger.print("one destination", force=True)
+        assert stderr.getvalue() == "two destinations\n"
+        assert log_file.getvalue() == "two destinations\none destination\n"
+
     def test_track_uses_requested_console(self) -> None:
         """Keep the progress display on the caller's preferred console."""
         terminal, progress_output = StringIO(), StringIO()

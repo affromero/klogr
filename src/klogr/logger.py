@@ -28,8 +28,8 @@ from klogr._progress import (
     IterationsPerSecondColumn as _IterationsPerSecondColumn,
 )
 from klogr._progress import make_progress
+from klogr._streams import MessageRoute, StreamMirror
 from klogr._streams import StdoutDuplicator as _StdoutDuplicator
-from klogr._streams import StreamMirror, routed_consoles
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -181,7 +181,7 @@ class LoggingRich:
         default=None, init=False, repr=False
     )
 
-    _route: ContextVar[tuple[Console, ...] | None] = field(
+    _route: ContextVar[MessageRoute | None] = field(
         default_factory=lambda: ContextVar("klogr_route", default=None),
         init=False,
         repr=False,
@@ -694,7 +694,7 @@ class LoggingRich:
     @property
     def _message_consoles(self) -> tuple[Console, ...]:
         route = self._route.get()
-        return (self.console,) if route is None else route
+        return (self.console,) if route is None else route.consoles()
 
     @contextlib.contextmanager
     def route(
@@ -707,8 +707,8 @@ class LoggingRich:
         streams receive plain text and stay open. Interactive progress and
         prompts continue to use the logger's original console.
         """
-        consoles = routed_consoles(self.console, streams, terminal=terminal)
-        token = self._route.set(consoles)
+        route = MessageRoute(self.console, streams, terminal=terminal)
+        token = self._route.set(route)
         try:
             yield self
         finally:
@@ -871,3 +871,11 @@ def _get_cached_logger(
     levels: frozenset[tuple[str, bool]], *, stderr: bool
 ) -> LoggingRich:
     return LoggingRich(verbosity=dict(levels), console=Console(stderr=stderr))
+
+
+# Preserve the runtime cache controls exposed by the previous decorator.
+vars(get_logger).update(
+    cache_clear=_get_cached_logger.cache_clear,
+    cache_info=_get_cached_logger.cache_info,
+    cache_parameters=_get_cached_logger.cache_parameters,
+)

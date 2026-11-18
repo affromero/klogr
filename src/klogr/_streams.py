@@ -111,17 +111,36 @@ class _PlainWriter(TextIOBase):
         """Leave the caller-owned stream open."""
 
 
-def routed_consoles(
-    source: Console, streams: tuple[TextIO, ...], *, terminal: bool
-) -> tuple[Console, ...]:
-    """Give each distinct destination a console with its own formatting."""
-    terminal_file = source.file if terminal else None
-    files = (
-        _plain_console(source, stream)
-        for stream in {id(stream): stream for stream in streams}.values()
-        if stream is not terminal_file
-    )
-    return (source, *files) if terminal else tuple(files)
+class MessageRoute:
+    """Hold a console for each distinct destination in a logging scope."""
+
+    terminal: Console | None
+    files: tuple[tuple[TextIO, Console], ...]
+
+    def __init__(
+        self, source: Console, streams: tuple[TextIO, ...], *, terminal: bool
+    ) -> None:
+        """Keep the selected terminal and deduplicate explicit streams."""
+        self.terminal = source if terminal else None
+        self.files = tuple(
+            (stream, _plain_console(source, stream))
+            for stream in {id(stream): stream for stream in streams}.values()
+        )
+
+    def consoles(self) -> tuple[Console, ...]:
+        """Select distinct destinations using the current terminal stream."""
+        terminal = self.terminal
+        if terminal is None:
+            return tuple(console for _, console in self.files)
+        terminal_file = terminal.file
+        return (
+            terminal,
+            *(
+                console
+                for stream, console in self.files
+                if stream is not terminal_file
+            ),
+        )
 
 
 def _plain_console(source: Console, stream: TextIO) -> Console:
