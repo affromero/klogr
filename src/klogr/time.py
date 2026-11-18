@@ -18,8 +18,8 @@ def get_elapsed_time(elapsed_time: float) -> str:
             'dd : hh : mm : ss'.
 
     Example:
-        >>> format_time(3661.0)
-        '00 : 01 : 01 : 01'
+        >>> get_elapsed_time(3661.0)
+        '00d : 01h : 01m : 01s'
     Note:
         The input elapsed_time should be a non-negative float number.
 

@@ -14,6 +14,7 @@ from dataclasses import field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 import dotenv
@@ -27,6 +28,7 @@ from rich.table import Table
 from klogr import _progress
 from klogr._streams import MessageRoute, StreamMirror
 from klogr._streams import StdoutDuplicator as _StdoutDuplicator
+from klogr.time import get_elapsed_time
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -123,16 +125,17 @@ def override_from_dotenv(
     return decorator
 
 
+@dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class LoggingTable:
-    """LoggingTable class."""
+    """Describe a Rich table."""
 
-    columns: list[str]
+    columns: list[str] = field(default_factory=list)
     """Columns of the table."""
-    colors: list[str]
+    colors: list[str] = field(default_factory=list)
     """Colors of the table. Same length as columns."""
-    rows: list[list[str]]
+    rows: list[list[str]] = field(default_factory=list)
     """Rows of the table. Same length as columns."""
-    title: str
+    title: str = ""
     """Title of the table."""
     box: Box = ROUNDED
     """Box style of the table. Default is ROUNDED."""
@@ -318,44 +321,16 @@ class LoggingRich:
             return
         self._logged_once.add(msg)
         stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
+        stack_offset += 1
         self.success(msg, force=force, stack_offset=stack_offset, **kwargs)
 
     def success(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log a success message if the verbosity level for success messages is enabled."""
-        if not self.verbosity["success"] and not force:
-            return
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset + 1, level="success", **kwargs
-            )
-            return
-        self.log(
-            self.get_modes()["success"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log a success message."""
+        self._emit_level("success", msg, force=force, options=kwargs)
 
     def error(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log an error message if the verbosity level for errors is enabled."""
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if not self.verbosity["error"] and not force:
-            return
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset + 1, level="error", **kwargs
-            )
-            return
-        self.log(
-            self.get_modes()["error"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log an error message."""
+        self._emit_level("error", msg, force=force, options=kwargs)
 
     def warning_once(
         self, msg: str, *, force: bool = False, **kwargs: Any
@@ -365,46 +340,12 @@ class LoggingRich:
             return
         self._logged_once.add(msg)
         stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
+        stack_offset += 1
         self.warning(msg, force=force, stack_offset=stack_offset, **kwargs)
 
     def warning(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log a warning message if the verbosity level for warnings is.
-
-            enabled.
-
-        Arguments:
-            msg (str): The warning message to be logged.
-            force (bool): Whether to log the message regardless of the verbosity level.
-            **kwargs: Additional keyword arguments that can be passed to the log method.
-
-        Returns:
-            None: This function does not return any value.
-
-        Example:
-            >>> log_warning("This is a warning message", verbosity_level=2)
-
-        Note:
-            The verbosity level for warnings is controlled by the
-                'verbosity_level' keyword argument. If it is not
-            provided, the default level is used.
-
-        """
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if not self.verbosity["warning"] and not force:
-            return
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset + 1, level="warning", **kwargs
-            )
-            return
-        self.log(
-            self.get_modes()["warning"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log a warning message."""
+        self._emit_level("warning", msg, force=force, options=kwargs)
 
     def info_once(
         self, msg: str, *, force: bool = False, **kwargs: Any
@@ -414,26 +355,12 @@ class LoggingRich:
             return
         self._logged_once.add(msg)
         stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
+        stack_offset += 1
         self.info(msg, force=force, stack_offset=stack_offset, **kwargs)
 
     def info(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log an informational message with the specified message."""
-        if not self.verbosity["info"] and not force:
-            return None
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset, level="info", **kwargs
-            )
-            return None
-        return self.log(
-            self.get_modes()["info"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log an informational message."""
+        self._emit_level("info", msg, force=force, options=kwargs)
 
     def __jsonize(self, msg: str) -> str:
         """JSONize a message and add color formatting.
@@ -502,27 +429,41 @@ class LoggingRich:
         """
         if not self.verbosity["error"] and not force:
             return
-        self.error("\n" + self.__jsonize(msg), **kwargs)
+        stack_offset = kwargs.pop("stack_offset", 0)
+        self.error(
+            "\n" + self.__jsonize(msg),
+            force=force,
+            stack_offset=stack_offset + 1,
+            **kwargs,
+        )
 
     @override_from_dotenv("LOG_DEBUG")
     def debug(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log debug messages with additional keyword arguments if debug."""
-        if not self.verbosity["debug"] and not force:
+        """Log a debug message."""
+        self._emit_level("debug", msg, force=force, options=kwargs)
+
+    def _emit_level(
+        self, level: str, message: str, *, force: bool, options: dict[str, Any]
+    ) -> None:
+        if not (force or self.verbosity[level]):
             return
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += (
-            self.stack_offset + 2
-        )  # counting the override_from_dotenv decorator
+        stack_offset = options.pop("stack_offset", 0) + self.stack_offset + 2
+        if level == "debug":
+            stack_offset += 1  # The dotenv decorator adds a frame.
         if JSON_FORMATTER:
             self.log_json(
-                msg, stack_offset=stack_offset + 1, level="debug", **kwargs
+                message,
+                level=level,
+                force=force,
+                stack_offset=stack_offset - 1,
+                **options,
             )
             return
         self.log(
-            self.get_modes()["debug"].format(msg),
+            self.get_modes()[level].format(message),
             stack_offset=stack_offset,
             force=force,
-            **kwargs,
+            **options,
         )
 
     def convert_list_to_bullets(self, l_string: str) -> str:
@@ -619,9 +560,13 @@ class LoggingRich:
         if isinstance(msg, str):
             msg = self.preprocess_msg(msg)
         if JSON_FORMATTER:
-            stack_offset = kwargs.pop("_stack_offset", 0) + 1
+            stack_offset = kwargs.pop("_stack_offset")
             self.log_json(
-                msg, level="log", stack_offset=stack_offset, **kwargs
+                msg,
+                level="log",
+                stack_offset=stack_offset,
+                force=force,
+                **kwargs,
             )
             return
         _msg = self.get_modes()["log"].format(msg)
@@ -782,7 +727,7 @@ class LoggingRich:
             self.disable_dual_output()
 
     @contextlib.contextmanager
-    def timed(self, description: str) -> Any:
+    def timed(self, description: str) -> Iterator[None]:
         """Log how long a block of work takes.
 
         Logs ``▶ {description}`` on entry and
@@ -795,18 +740,11 @@ class LoggingRich:
 
         """
         self.info(f"▶ {description}")
-        start = datetime.now(tz=timezone.utc)
+        start = perf_counter()
         try:
             yield
         finally:
-            elapsed = (datetime.now(tz=timezone.utc) - start).total_seconds()
-            days, rem = divmod(elapsed, 86400)
-            hours, rem = divmod(rem, 3600)
-            minutes, seconds = divmod(rem, 60)
-            formatted = (
-                f"{int(days):02d}d : {int(hours):02d}h : "
-                f"{int(minutes):02d}m : {int(seconds):02d}s"
-            )
+            formatted = get_elapsed_time(perf_counter() - start)
             self.success(f"✓ {description} — {formatted}")
 
     def kv(self, **fields: Any) -> None:

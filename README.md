@@ -40,7 +40,8 @@
     sha256sum(path) / get_cache_dir()        -->  stable on-disk caching
 ```
 
-`klogr` is what you reach for when stdlib `logging.basicConfig` doesn't cut it and `print()` feels gross. It wraps Python's `logging` module with `rich.logging.RichHandler` pre-configured, adds stacklevel awareness so every line shows where it came from, and ships a handful of helpers (caching, paths, timing) that show up in every ML/data project.
+`klogr` uses Rich consoles to render log messages and their source locations.
+It also provides caching, path, and timing helpers.
 
 ## Why use it
 
@@ -49,7 +50,7 @@
 - **`logger.track()`** — wraps `rich.progress.track()` and works inside `ThreadPoolExecutor` / `ProcessPoolExecutor` without going silent.
 - **`logger.print()` / `logger.info_json()`** — pretty-print Pydantic models, dicts, JSON without piping through `print(json.dumps(..., indent=2))`.
 - **`@lru_cache` with a disable hook** — flip an env var to bypass caching globally (handy for tests).
-- **Path helpers that handle S3** — `path_join`, `path_exists`, `path_mkdir`, etc. work whether you pass `/tmp/foo` or `s3://bucket/foo`.
+- **Path helpers** for local file operations and for manipulating URI strings.
 - **`get_elapsed_time(seconds)`** — formats float seconds as `00d : 01h : 12m : 03s`.
 - **One-liner dual output** — `with logger.to_file("run.log"):` mirrors every log line to BOTH the Rich-formatted console AND the log file. Perfect for batch jobs.
 - **Timed blocks** — `with logger.timed("train epoch"):` prints entry + exit + elapsed, no `time.perf_counter()` boilerplate.
@@ -73,7 +74,7 @@ from klogr import get_logger
 
 logger = get_logger()
 
-logger.info("loaded %d samples", 1024)         # auto file:line prefix
+logger.info(f"loaded {1024} samples")           # adds the source location
 logger.success("training converged")            # green check
 logger.warning("validation loss plateaued")
 logger.error("OOM on batch 42")
@@ -209,7 +210,7 @@ cache_root = get_cache_dir()                          # XDG cache root
 digest     = sha256sum("/path/to/file.bin")           # hex string
 ```
 
-### Path helpers (local + S3 transparent)
+### Local files and URI strings
 
 ```python
 from klogr.path import (
@@ -218,7 +219,7 @@ from klogr.path import (
 )
 
 path_exists("/tmp/local.bin")       # True/False
-path_exists("s3://bucket/key.bin")  # True/False (same call)
+path_dirname("s3://bucket/key.bin") # s3://bucket
 path_mkdir("/tmp/nested/dir", parents=True, exist_ok=True)
 for p in path_glob("/data/*.jpg"):
     with path_open(p, "rb") as f:
@@ -256,7 +257,7 @@ src/klogr/
 ├── _progress.py    # shared Rich progress rendering
 ├── _streams.py     # scoped destinations and legacy stream mirroring
 ├── cache.py        # lru_cache, DisableableLRUCache, sha256sum, get_cache_dir
-├── path/           # local + S3 path helpers
+├── path/           # local filesystem and URI helpers
 │   ├── __init__.py
 │   ├── ops.py      # pure ops (join, dirname, basename, suffix, …)
 │   ├── env.py      # path_dotenv, path_home, path_expanduser

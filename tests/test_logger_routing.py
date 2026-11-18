@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import os
+import subprocess
 import sys
 from collections.abc import Iterator
 from contextlib import redirect_stderr, redirect_stdout
@@ -10,7 +12,7 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 
 from rich.console import Console, ConsoleOptions, RenderResult
 
-from klogr import LoggingRich, get_logger
+from klogr import LoggingRich, LoggingTable, get_logger
 
 
 class _DestinationLabel:
@@ -22,6 +24,47 @@ class _DestinationLabel:
 
 class LoggerRoutingTests(TestCase):
     """Exercise terminal and plain text routes and their lifetimes."""
+
+    def test_forced_json_uses_the_callers_source_location(self) -> None:
+        """Emit forced messages even with both levels disabled."""
+        run = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from klogr import get_logger\n"
+                "logger = get_logger({'info': False, 'log': False})\n"
+                "logger.info_once('forced info', force=True, indent=None)\n"
+                "logger.log('forced log', force=True, indent=None)\n",
+            ],
+            env=os.environ | {"JSON_FORMATTER": "True"},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        records = [json.loads(line) for line in run.stdout.splitlines()]
+        assert [
+            (record["message"], record["filename"]) for record in records
+        ] == [
+            ("forced info", "<string>:3"),
+            ("forced log", "<string>:4"),
+        ]
+
+    def test_table_can_be_constructed_and_rendered(self) -> None:
+        """Render the columns and values from a keyword-initialized table."""
+        stream = StringIO()
+        logger = LoggingRich(console=Console(file=stream))
+        logger.table(
+            LoggingTable(
+                title="Run summary",
+                columns=["Phase"],
+                colors=["cyan"],
+                rows=[["Complete"]],
+            )
+        )
+        rendered = stream.getvalue()
+        assert "Run summary" in rendered
+        assert "Phase" in rendered
+        assert "Complete" in rendered
 
     def test_distinct_destinations_render_once_and_preserve_json(self) -> None:
         """Keep stdout parseable while styling stderr and writing plain text."""
