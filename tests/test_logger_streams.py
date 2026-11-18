@@ -16,6 +16,18 @@ class LoggerStreamTests(TestCase):
 
     check_equal = TestCase.assertEqual
 
+    def test_partial_verbosity_preserves_other_levels(self) -> None:
+        """Apply only the requested override and cache equivalent settings."""
+        logger = get_logger({"info": False}, stderr=True)
+        stdout, stderr = StringIO(), StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            logger.info("hidden")
+            logger.print("visible", force=True)
+        assert "hidden" not in stderr.getvalue()
+        assert "visible" in stderr.getvalue()
+        assert stdout.getvalue() == ""
+        assert logger is get_logger({"info": False}, stderr=True)
+
     def test_default_logger_writes_to_stdout(self) -> None:
         """Route default log output to stdout."""
         stdout, stderr = StringIO(), StringIO()

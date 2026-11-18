@@ -8,31 +8,40 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Sized
+from contextvars import ContextVar
 from dataclasses import field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from typing import TYPE_CHECKING, Any
 
 import dotenv
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
-from rich import progress
 from rich.box import ROUNDED, Box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
+
+from klogr._progress import (
+    IterationsPerSecondColumn as _IterationsPerSecondColumn,
+)
+from klogr._progress import make_progress
+from klogr._streams import StdoutDuplicator as _StdoutDuplicator
+from klogr._streams import StreamMirror, routed_consoles
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
-    from typing import TypeVar
+    from collections.abc import Callable, Iterable, Iterator
+    from typing import TextIO, TypeVar
 
     from rich.progress import Progress
 
     _T = TypeVar("_T")
 
 SECRET_PLACEHOLDERS = {"INFISICAL", "AWS-SECRET"}
+IterationsPerSecondColumn = _IterationsPerSecondColumn
+StdoutDuplicator = _StdoutDuplicator
 
 
 def _load_non_secret_dotenv() -> None:
@@ -69,46 +78,6 @@ DEFAULT_VERBOSITY = {
     "save_image": not DISABLE_LOGGING,
     "make_image_grid": not DISABLE_LOGGING,
 }
-
-
-class StdoutDuplicator:
-    """Duplicates a standard stream to a file, stripping ANSI codes."""
-
-    def __init__(self, original_stdout: TextIO, file_path: str | Path) -> None:
-        """Initialize StdoutDuplicator.
-
-        Args:
-            original_stdout: The original standard stream
-            file_path: Path to the log file
-
-        """
-        self.original_stdout = original_stdout
-        self.file_handle: TextIO = Path(file_path).open("w", encoding="utf-8")
-
-    def write(self, data: str) -> int:
-        """Write to the original stream and strip ANSI codes from the file."""
-        result = self.original_stdout.write(data)
-
-        # Write to file, stripping ANSI codes
-        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        clean_data = ansi_escape.sub("", data)
-        self.file_handle.write(clean_data)
-        self.file_handle.flush()
-
-        return result
-
-    def flush(self) -> None:
-        """Flush the original stream and file."""
-        self.original_stdout.flush()
-        self.file_handle.flush()
-
-    def close(self) -> None:
-        """Close file handle."""
-        self.file_handle.close()
-
-    def __getattr__(self, name: str) -> Any:
-        """Delegate other attributes to the original stream."""
-        return getattr(self.original_stdout, name)
 
 
 def override_from_dotenv(
@@ -159,17 +128,6 @@ def override_from_dotenv(
     return decorator
 
 
-class IterationsPerSecondColumn(progress.ProgressColumn):
-    """Iterations per second column."""
-
-    def render(self, task: progress.Task) -> Text:
-        """Render the iterations per second column."""
-        speed = task.finished_speed or task.speed
-        if speed is None:
-            return Text("? it/s", style="progress.data.speed")
-        return Text(f"{speed:.2f} it/s", style="progress.data.speed")
-
-
 class LoggingTable:
     """LoggingTable class."""
 
@@ -216,11 +174,17 @@ class LoggingRich:
     id: str = ""
     """ ID for the logger. """
 
-    stdout_duplicator: StdoutDuplicator | None = None
+    stdout_duplicator: _StdoutDuplicator | None = None
     """ Standard stream duplicator for file output when enabled. """
 
-    _console_before_dual_output: Console | None = field(
+    _stream_mirror: StreamMirror | None = field(
         default=None, init=False, repr=False
+    )
+
+    _route: ContextVar[tuple[Console, ...] | None] = field(
+        default_factory=lambda: ContextVar("klogr_route", default=None),
+        init=False,
+        repr=False,
     )
 
     _logged_once: set[str] = field(default_factory=set)
@@ -288,21 +252,13 @@ class LoggingRich:
             Items from the iterable.
 
         """
-        if total is None and hasattr(iterable, "__len__"):
-            total = len(iterable)  # type: ignore[arg-type]
+        if total is None and isinstance(iterable, Sized):
+            total = len(iterable)
 
         console = kwargs.pop("console", self.console)
-        with progress.Progress(
-            "[progress.description]{task.description}",
-            progress.BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            progress.MofNCompleteColumn(),
-            progress.TimeRemainingColumn(),
-            progress.TimeElapsedColumn(),
-            IterationsPerSecondColumn(),
+        with make_progress(
             console=console,
             transient=transient,
-            refresh_per_second=1,
             **kwargs,
         ) as prog:
             task_id = prog.add_task(description, total=total)
@@ -310,7 +266,7 @@ class LoggingRich:
                 yield item
                 prog.update(task_id, advance=1)
 
-    def progress(self) -> progress.Progress:
+    def progress(self) -> Progress:
         """Create and return a Rich Progress context manager with a custom progress bar.
 
         Returns:
@@ -325,17 +281,7 @@ class LoggingRich:
                     prog.update(task, advance=1)
 
         """
-        return progress.Progress(
-            "[progress.description]{task.description}",
-            progress.BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            progress.MofNCompleteColumn(),
-            progress.TimeRemainingColumn(),
-            progress.TimeElapsedColumn(),
-            IterationsPerSecondColumn(),
-            console=self.console,
-            refresh_per_second=1,  # bit slower updates
-        )
+        return make_progress(console=self.console)
 
     def panel(
         self,
@@ -614,7 +560,8 @@ class LoggingRich:
             return
         if isinstance(msg, str):
             msg = self.preprocess_msg(msg)
-        self.console.print(msg, **kwargs)
+        for console in self._message_consoles:
+            console.print(msg, **kwargs)
 
     def input(self, msg: str, **kwargs: Any) -> str:
         """Input a message to the console.
@@ -652,13 +599,11 @@ class LoggingRich:
         }
         if self.id:
             data["trace_id"] = self.id
-        # self.console.log(
-        #     RichJSON(json.dumps(data), indent=4, sort_keys=True),
-        #     **kwargs,
-        # )
-        self.console.print_json(
-            json.dumps(data), indent=indent, sort_keys=sort_keys
-        )
+        rendered_data = json.dumps(data)
+        for console in self._message_consoles:
+            console.print_json(
+                rendered_data, indent=indent, sort_keys=sort_keys
+            )
 
     def log(
         self,
@@ -685,7 +630,7 @@ class LoggingRich:
             )
             return
         _msg = self.get_modes()["log"].format(msg)
-        if progress is not None:
+        if progress is not None and self._route.get() is None:
             kwargs["_stack_offset"] = (
                 self.stack_offset if stack_offset is None else stack_offset + 1
             )
@@ -694,7 +639,8 @@ class LoggingRich:
             )
             progress.console.log(_msg, **kwargs)
         else:
-            self.console.log(_msg, **kwargs)
+            for console in self._message_consoles:
+                console.log(_msg, **kwargs)
 
     def log_unittest(
         self,
@@ -718,7 +664,8 @@ class LoggingRich:
         if not self.verbosity["rule"]:
             return
         msg = self.preprocess_msg(msg)
-        self.console.rule(msg, **kwargs)
+        for console in self._message_consoles:
+            console.rule(msg, **kwargs)
 
     def print_exception(
         self,
@@ -731,7 +678,8 @@ class LoggingRich:
             self.error(msg, stack_offset=stack_offset)
         # check if already inside an exception
         if sys.exc_info()[0] is not None:
-            self.console.print_exception(**kwargs)
+            for console in self._message_consoles:
+                console.print_exception(**kwargs)
 
     def exception(
         self, msg: str, stack_offset: int = 1, **kwargs: Any
@@ -742,6 +690,29 @@ class LoggingRich:
     def status(self, msg: str, **kwargs: Any) -> Any:
         """Display a status message along with any additional keyword arguments in the console."""
         return self.console.status(msg, **kwargs)
+
+    @property
+    def _message_consoles(self) -> tuple[Console, ...]:
+        route = self._route.get()
+        return (self.console,) if route is None else route
+
+    @contextlib.contextmanager
+    def route(
+        self, *streams: TextIO, terminal: bool = True
+    ) -> Iterator[LoggingRich]:
+        """Route messages to open text streams and optionally the console.
+
+        Each nested scope replaces the previous route for the current
+        execution context. Exiting restores the previous route. Additional
+        streams receive plain text and stay open. Interactive progress and
+        prompts continue to use the logger's original console.
+        """
+        consoles = routed_consoles(self.console, streams, terminal=terminal)
+        token = self._route.set(consoles)
+        try:
+            yield self
+        finally:
+            self._route.reset(token)
 
     def unittest_logger(self, file_str: str) -> None:
         """Initialize a console object for logging unit test results."""
@@ -772,39 +743,26 @@ class LoggingRich:
             **kwargs: Additional arguments passed to Console constructor
 
         """
-        original_console = self._console_before_dual_output or self.console
-        stream_name = "stderr" if original_console.stderr else "stdout"
-        original_stream = (
-            self.stdout_duplicator.original_stdout
-            if self.stdout_duplicator is not None
-            else getattr(sys, stream_name)
+        mirror = StreamMirror(
+            self.console,
+            file_path,
+            previous=self._stream_mirror,
+            console_options=kwargs,
         )
-        console = Console(
-            **(
-                kwargs
-                | {"stderr": original_console.stderr, "force_terminal": True}
-            )
-        )
-        console._log_render.omit_repeated_times = RICH_OMIT_REPEATED_TIMES
-        duplicator = StdoutDuplicator(original_stream, file_path)
-        self.disable_dual_output()
-        self._console_before_dual_output = original_console
-        self.stdout_duplicator = duplicator
-        setattr(sys, stream_name, duplicator)
-        self.console = console
+        self._stream_mirror = mirror
+        self.stdout_duplicator = mirror.duplicator
+        self.console = mirror.console
+        self.console._log_render.omit_repeated_times = RICH_OMIT_REPEATED_TIMES
 
     def disable_dual_output(self) -> None:
         """Disable logging to both console and file simultaneously."""
-        duplicator = self.stdout_duplicator
-        original_console = self._console_before_dual_output
-        if duplicator is None or original_console is None:
+        mirror = self._stream_mirror
+        if mirror is None:
             return
-        stream_name = "stderr" if original_console.stderr else "stdout"
-        setattr(sys, stream_name, duplicator.original_stdout)
         self.stdout_duplicator = None
-        self._console_before_dual_output = None
-        self.console = original_console
-        duplicator.close()
+        self._stream_mirror = None
+        self.console = mirror.original_console
+        mirror.close()
 
     @contextlib.contextmanager
     def to_file(
@@ -898,11 +856,18 @@ class LoggingRich:
         return " ".join(color_msg)
 
 
-@lru_cache(maxsize=128)
 def get_logger(
-    verbosity: dict[str, bool] = DEFAULT_VERBOSITY,
+    verbosity: dict[str, bool] | None = None,
     *,
     stderr: bool = False,
 ) -> LoggingRich:
-    """Return a cached logger that writes to stdout or, if requested, stderr."""
-    return LoggingRich(verbosity=verbosity, console=Console(stderr=stderr))
+    """Return a cached logger with optional verbosity overrides and stderr."""
+    levels = DEFAULT_VERBOSITY | (verbosity or {})
+    return _get_cached_logger(frozenset(levels.items()), stderr=stderr)
+
+
+@lru_cache(maxsize=128)
+def _get_cached_logger(
+    levels: frozenset[tuple[str, bool]], *, stderr: bool
+) -> LoggingRich:
+    return LoggingRich(verbosity=dict(levels), console=Console(stderr=stderr))

@@ -123,6 +123,29 @@ logger.info("Processed 12 records")
 print(json.dumps({"records": 12}))
 ```
 
+### Route messages to open streams
+
+```python
+import json
+
+from klogr import get_logger
+
+logger = get_logger(stderr=True)
+with open("command.log", "x", encoding="utf-8") as log:
+    with logger.route(log):
+        logger.info("Processed 12 records")
+    print(json.dumps({"records": 12}))
+```
+
+`route()` renders messages to the logger's console and each supplied stream.
+Files receive plain text. Pass `terminal=False` to write only to the supplied
+streams. Use `get_logger(stderr=True)` for commands that reserve stdout for data.
+
+An inner route replaces the outer route until it exits. Routes are local to
+the current execution context, so concurrent tasks can use the same logger
+with different destinations. The caller opens and closes each stream.
+Interactive progress and prompts use the logger's console.
+
 ### Log to console AND a file at the same time
 
 ```python
@@ -230,6 +253,8 @@ uv run examples/01_basic_logger.py
 src/klogr/
 ├── __init__.py     # public re-exports
 ├── logger.py       # LoggingRich, LoggingTable, get_logger
+├── _progress.py    # shared Rich progress rendering
+├── _streams.py     # scoped destinations and legacy stream mirroring
 ├── cache.py        # lru_cache, DisableableLRUCache, sha256sum, get_cache_dir
 ├── path/           # local + S3 path helpers
 │   ├── __init__.py
