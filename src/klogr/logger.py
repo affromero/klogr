@@ -26,13 +26,16 @@ from rich.panel import Panel
 from rich.table import Table
 
 from klogr import _progress
-from klogr._streams import MessageRoute, StreamMirror
+from klogr._streams import FileMode, MessageRoute, StreamMirror
 from klogr._streams import StdoutDuplicator as _StdoutDuplicator
+from klogr.events import ProgressEvent, report_progress
 from klogr.time import get_elapsed_time
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
     from typing import TextIO, TypeVar
+
+    from rich.console import RenderableType
 
     _T = TypeVar("_T")
 
@@ -583,7 +586,7 @@ class LoggingRich:
             )
             return
         _msg = self.get_modes()["log"].format(msg)
-        if progress is not None and self._route.get() is None:
+        if progress is not None and self._active_route is None:
             kwargs["_stack_offset"] = (
                 self.stack_offset if stack_offset is None else stack_offset + 1
             )
@@ -645,8 +648,15 @@ class LoggingRich:
         return self.console.status(msg, **kwargs)
 
     @property
-    def _message_consoles(self) -> tuple[Console, ...]:
+    def _active_route(self) -> MessageRoute | None:
         route = self._route.get()
+        while route is not None and not route.active:
+            route = route.previous
+        return route
+
+    @property
+    def _message_consoles(self) -> tuple[Console, ...]:
+        route = self._active_route
         return (self.console,) if route is None else route.consoles()
 
     @contextlib.contextmanager
@@ -660,12 +670,50 @@ class LoggingRich:
         streams receive plain text and stay open. Interactive progress and
         prompts continue to use the logger's original console.
         """
-        route = MessageRoute(self.console, streams, terminal=terminal)
+        route = MessageRoute(
+            self.console,
+            streams,
+            terminal=terminal,
+            previous=self._active_route,
+        )
         token = self._route.set(route)
         try:
             yield self
         finally:
+            route.active = False
             self._route.reset(token)
+
+    @contextlib.contextmanager
+    def route_file(
+        self,
+        path: str | Path,
+        *,
+        mode: FileMode,
+        terminal: bool = True,
+        encoding: str = "utf-8",
+    ) -> Iterator[LoggingRich]:
+        """Route messages to a file opened with the requested creation mode."""
+        with (
+            Path(path).open(FileMode(mode).value, encoding=encoding) as file,
+            self.route(file, terminal=terminal),
+        ):
+            yield self
+
+    def progress_events(
+        self,
+        *,
+        dashboard: Callable[[ProgressEvent], RenderableType] | None = None,
+        jsonl: TextIO | None = None,
+        interval: float = 1.0,
+    ) -> contextlib.AbstractContextManager[Callable[[ProgressEvent], None]]:
+        """Publish progress events to the active route and optional JSON Lines."""
+        return report_progress(
+            destinations=lambda: self._message_consoles,
+            terminal=self.console,
+            dashboard=dashboard,
+            jsonl=jsonl,
+            interval=interval,
+        )
 
     def unittest_logger(self, file_str: str) -> None:
         """Initialize a console object for logging unit test results."""

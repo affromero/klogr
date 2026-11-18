@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sys
+from enum import Enum
 from io import TextIOBase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -48,6 +49,14 @@ class StdoutDuplicator:
     def __getattr__(self, name: str) -> Any:
         """Delegate other attributes to the original stream."""
         return getattr(self.original_stdout, name)
+
+
+class FileMode(str, Enum):
+    """Creation modes for a scoped log file."""
+
+    EXCLUSIVE = "x"
+    APPEND = "a"
+    OVERWRITE = "w"
 
 
 class StreamMirror:
@@ -116,12 +125,21 @@ class MessageRoute:
 
     terminal: Console | None
     files: tuple[tuple[TextIO, Console], ...]
+    previous: MessageRoute | None
+    active: bool
 
     def __init__(
-        self, source: Console, streams: tuple[TextIO, ...], *, terminal: bool
+        self,
+        source: Console,
+        streams: tuple[TextIO, ...],
+        *,
+        terminal: bool,
+        previous: MessageRoute | None,
     ) -> None:
         """Keep the selected terminal and deduplicate explicit streams."""
         self.terminal = source if terminal else None
+        self.previous = previous
+        self.active = True
         self.files = tuple(
             (stream, _plain_console(source, stream))
             for stream in {id(stream): stream for stream in streams}.values()
@@ -141,6 +159,12 @@ class MessageRoute:
                 if stream is not terminal_file
             ),
         )
+
+
+def console_stream(console: Console) -> IO[str]:
+    """Return the caller-owned stream represented by a console."""
+    stream = console.file
+    return stream.stream if isinstance(stream, _PlainWriter) else stream
 
 
 def _plain_console(source: Console, stream: TextIO) -> Console:

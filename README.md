@@ -147,6 +147,39 @@ the current execution context, so concurrent tasks can use the same logger
 with different destinations. The caller opens and closes each stream.
 Interactive progress and prompts use the logger's console.
 
+Use `logger.route_file(path, mode=FileMode.EXCLUSIVE)` when the scope should
+open and close the file. Import `FileMode` from `klogr` and choose
+`EXCLUSIVE`, `APPEND`, or `OVERWRITE`. Exclusive mode preserves existing
+files and symlinks. This API routes logger messages. The existing `to_file()`
+also mirrors direct writes to the selected standard stream.
+
+### Report stage and frame progress
+
+```python
+from klogr import FileMode, ProgressEvent, ProgressStatus, get_logger
+
+logger = get_logger(stderr=True)
+with (
+    logger.route_file("run.log", mode=FileMode.EXCLUSIVE),
+    open("events.jsonl", "x", encoding="utf-8") as events,
+    logger.progress_events(jsonl=events) as publish,
+):
+    publish(ProgressEvent(
+        stage="generate", status=ProgressStatus.STARTED, elapsed_seconds=0,
+    ))
+    publish(ProgressEvent(
+        stage="frames", status=ProgressStatus.RUNNING, elapsed_seconds=1.5,
+        completed=10, total=60,
+    ))
+```
+
+Each JSON Lines record has `stage`, `status`, `elapsed_seconds`, `completed`,
+and `total`. The count fields are null when omitted. Supply a separate stream
+for JSON Lines. Text logs throttle repeated running updates per stage and
+retain transitions, completion, and failure. Pass a `dashboard` callback
+that returns a Rich renderable to customize the interactive terminal display.
+Redirected sessions and file sinks receive plain progress lines.
+
 ### Log to console AND a file at the same time
 
 ```python
@@ -225,6 +258,10 @@ for p in path_glob("/data/*.jpg"):
     with path_open(p, "rb") as f:
         ...
 ```
+
+Use `path_write_text_atomic()` from `klogr.path` to publish a local text
+file or serialized manifest. It writes a sibling temporary file and
+replaces the destination after the write and close succeed.
 
 ### Timing
 
