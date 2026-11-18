@@ -4,12 +4,14 @@ Public API. Most users want :func:`get_logger`. Path helpers live under
 :mod:`klogr.path`.
 """
 
+from ._streams import FileMode
 from .cache import (
     DisableableLRUCache,
     get_cache_dir,
     lru_cache,
     sha256sum,
 )
+from .events import ProgressEvent, ProgressStatus
 from .logger import (
     DEFAULT_VERBOSITY,
     LoggingRich,
@@ -21,8 +23,11 @@ from .time import get_elapsed_time
 __all__ = [
     "DEFAULT_VERBOSITY",
     "DisableableLRUCache",
+    "FileMode",
     "LoggingRich",
     "LoggingTable",
+    "ProgressEvent",
+    "ProgressStatus",
     "get_cache_dir",
     "get_elapsed_time",
     "get_logger",

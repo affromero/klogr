@@ -40,7 +40,8 @@
     sha256sum(path) / get_cache_dir()        -->  stable on-disk caching
 ```
 
-`klogr` is what you reach for when stdlib `logging.basicConfig` doesn't cut it and `print()` feels gross. It wraps Python's `logging` module with `rich.logging.RichHandler` pre-configured, adds stacklevel awareness so every line shows where it came from, and ships a handful of helpers (caching, paths, timing) that show up in every ML/data project.
+`klogr` uses Rich consoles to render log messages and their source locations.
+It also provides caching, path, and timing helpers.
 
 ## Why use it
 
@@ -49,7 +50,7 @@
 - **`logger.track()`** — wraps `rich.progress.track()` and works inside `ThreadPoolExecutor` / `ProcessPoolExecutor` without going silent.
 - **`logger.print()` / `logger.info_json()`** — pretty-print Pydantic models, dicts, JSON without piping through `print(json.dumps(..., indent=2))`.
 - **`@lru_cache` with a disable hook** — flip an env var to bypass caching globally (handy for tests).
-- **Path helpers that handle S3** — `path_join`, `path_exists`, `path_mkdir`, etc. work whether you pass `/tmp/foo` or `s3://bucket/foo`.
+- **Path helpers** for local file operations and for manipulating URI strings.
 - **`get_elapsed_time(seconds)`** — formats float seconds as `00d : 01h : 12m : 03s`.
 - **One-liner dual output** — `with logger.to_file("run.log"):` mirrors every log line to BOTH the Rich-formatted console AND the log file. Perfect for batch jobs.
 - **Timed blocks** — `with logger.timed("train epoch"):` prints entry + exit + elapsed, no `time.perf_counter()` boilerplate.
@@ -68,12 +69,14 @@ Requires Python ≥ 3.10. Runtime deps: `rich`, `pydantic`, `python-dotenv`, `be
 
 ## Quickstart
 
+![Terminal demo of klogr log levels and formatted data](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/logging.gif)
+
 ```python
 from klogr import get_logger
 
 logger = get_logger()
 
-logger.info("loaded %d samples", 1024)         # auto file:line prefix
+logger.info(f"loaded {1024} samples")           # adds the source location
 logger.success("training converged")            # green check
 logger.warning("validation loss plateaued")
 logger.error("OOM on batch 42")
@@ -122,6 +125,64 @@ logger = get_logger(stderr=True)
 logger.info("Processed 12 records")
 print(json.dumps({"records": 12}))
 ```
+
+### Route messages to open streams
+
+```python
+import json
+
+from klogr import get_logger
+
+logger = get_logger(stderr=True)
+with open("command.log", "x", encoding="utf-8") as log:
+    with logger.route(log):
+        logger.info("Processed 12 records")
+    print(json.dumps({"records": 12}))
+```
+
+`route()` renders messages to the logger's console and each supplied stream.
+Files receive plain text. Pass `terminal=False` to write only to the supplied
+streams. Use `get_logger(stderr=True)` for commands that reserve stdout for data.
+
+An inner route replaces the outer route until it exits. Routes are local to
+the current execution context, so concurrent tasks can use the same logger
+with different destinations. The caller opens and closes each stream.
+Interactive progress and prompts use the logger's console.
+
+![Terminal demo of a progress bar tracking parallel work](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/progress.gif)
+
+Use `logger.route_file(path, mode=FileMode.EXCLUSIVE)` when the scope should
+open and close the file. Import `FileMode` from `klogr` and choose
+`EXCLUSIVE`, `APPEND`, or `OVERWRITE`. Exclusive mode preserves existing
+files and symlinks. This API routes logger messages. The existing `to_file()`
+also mirrors direct writes to the selected standard stream.
+
+### Report stage and frame progress
+
+```python
+from klogr import FileMode, ProgressEvent, ProgressStatus, get_logger
+
+logger = get_logger(stderr=True)
+with (
+    logger.route_file("run.log", mode=FileMode.EXCLUSIVE),
+    open("events.jsonl", "x", encoding="utf-8") as events,
+    logger.progress_events(jsonl=events) as publish,
+):
+    publish(ProgressEvent(
+        stage="generate", status=ProgressStatus.STARTED, elapsed_seconds=0,
+    ))
+    publish(ProgressEvent(
+        stage="frames", status=ProgressStatus.RUNNING, elapsed_seconds=1.5,
+        completed=10, total=60,
+    ))
+```
+
+Each JSON Lines record has `stage`, `status`, `elapsed_seconds`, `completed`,
+and `total`. The count fields are null when omitted. Supply a separate stream
+for JSON Lines. Text logs throttle repeated running updates per stage and
+retain transitions, completion, and failure. Pass a `dashboard` callback
+that returns a Rich renderable to customize the interactive terminal display.
+Redirected sessions and file sinks receive plain progress lines.
 
 ### Log to console AND a file at the same time
 
@@ -186,7 +247,7 @@ cache_root = get_cache_dir()                          # XDG cache root
 digest     = sha256sum("/path/to/file.bin")           # hex string
 ```
 
-### Path helpers (local + S3 transparent)
+### Local files and URI strings
 
 ```python
 from klogr.path import (
@@ -195,12 +256,16 @@ from klogr.path import (
 )
 
 path_exists("/tmp/local.bin")       # True/False
-path_exists("s3://bucket/key.bin")  # True/False (same call)
+path_dirname("s3://bucket/key.bin") # s3://bucket
 path_mkdir("/tmp/nested/dir", parents=True, exist_ok=True)
 for p in path_glob("/data/*.jpg"):
     with path_open(p, "rb") as f:
         ...
 ```
+
+Use `path_write_text_atomic()` from `klogr.path` to publish a local text
+file or serialized manifest. It writes a sibling temporary file and
+replaces the destination after the write and close succeed.
 
 ### Timing
 
@@ -227,11 +292,13 @@ uv run examples/01_basic_logger.py
 ## Layout
 
 ```
-klogr/
+src/klogr/
 ├── __init__.py     # public re-exports
 ├── logger.py       # LoggingRich, LoggingTable, get_logger
+├── _progress.py    # shared Rich progress rendering
+├── _streams.py     # scoped destinations and legacy stream mirroring
 ├── cache.py        # lru_cache, DisableableLRUCache, sha256sum, get_cache_dir
-├── path/           # local + S3 path helpers
+├── path/           # local filesystem and URI helpers
 │   ├── __init__.py
 │   ├── ops.py      # pure ops (join, dirname, basename, suffix, …)
 │   ├── env.py      # path_dotenv, path_home, path_expanduser
@@ -244,9 +311,10 @@ klogr/
 
 ```bash
 uv sync
-.venv/bin/pre-commit run --all-files
-.venv/bin/pytest
-.venv/bin/mypy klogr/
+uv run pre-commit install --install-hooks
+uv run pre-commit run --all-files
+uv run python -m unittest discover -v
+uv run mypy --strict --follow-untyped-imports src/klogr tests
 ```
 
 ## License

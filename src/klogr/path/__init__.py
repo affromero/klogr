@@ -13,6 +13,7 @@ from .io import (
     path_rename,
     path_symlink,
     path_write_text,
+    path_write_text_atomic,
 )
 from .ops import (
     get_suffix,
@@ -104,4 +105,5 @@ __all__ = [
     "path_stem",
     "path_symlink",
     "path_write_text",
+    "path_write_text_atomic",
 ]

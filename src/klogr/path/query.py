@@ -315,6 +315,6 @@ def expand_glob_to_temp_dir(pattern: str, *, prefix: str = "glob_") -> str:
         basename = path_basename(file_path)
         link_name = f"{idx:06d}_{basename}"
         link_path = path_join(temp_dir, link_name)
-        os.symlink(file_path, link_path)
+        Path(link_path).symlink_to(file_path)
 
     return temp_dir

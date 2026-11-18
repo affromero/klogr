@@ -5,6 +5,37 @@ All notable changes to klogr are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-17
+
+### Added
+
+- Route logs to caller-owned streams with independent formatting and
+  context-local scopes. Open scoped log files in exclusive, append, or
+  overwrite mode. ([#9](https://github.com/affromero/klogr/pull/9),
+  [#3](https://github.com/affromero/klogr/issues/3),
+  [#7](https://github.com/affromero/klogr/issues/7))
+- Report stage and frame progress as JSON Lines or text. Interactive
+  terminals can render a custom Rich dashboard, and text logs retain
+  transitions while throttling repeated running updates.
+  ([#9](https://github.com/affromero/klogr/pull/9),
+  [#4](https://github.com/affromero/klogr/issues/4),
+  [#6](https://github.com/affromero/klogr/issues/6))
+- Publish text files through atomic replacement with temporary-file cleanup
+  on failure. ([#9](https://github.com/affromero/klogr/pull/9),
+  [#5](https://github.com/affromero/klogr/issues/5))
+
+### Fixed
+
+- Apply partial logger verbosity overrides and preserve caller locations
+  for forced JSON logs. Support keyword construction of log tables.
+  ([#9](https://github.com/affromero/klogr/pull/9))
+- Honor least-recently-used eviction, restore nested cache scopes, and
+  skip building diagnostics when debug logging is disabled.
+  ([#9](https://github.com/affromero/klogr/pull/9))
+- Preserve external symlink targets during directory removal and remove
+  literal suffixes without trimming the filename stem.
+  ([#9](https://github.com/affromero/klogr/pull/9))
+
 ## [0.2.2] - 2026-11-17
 
 ### Fixed
@@ -72,7 +103,7 @@ just surfaces it in the README example set.
 ### Fixed
 
 - `sha256sum>=2024.4.26` → `sha256sum>=2022.6.11`. The 2024 lower bound
-  broke `uv sync` on macOS (`hax-cv[mps]` split) where only the older
+  broke `uv sync` on macOS where only the older
   `sha256sum` wheel is published. klogr only uses the long-stable
   `sha256sum.sha256sum()` function, available since the 2022 versions.
 
@@ -167,7 +198,7 @@ First release under the new name `klogr`. Previously published as `difflogtest`.
 
 - `get_logger`, `LoggingRich`, `LoggingTable`, `DEFAULT_VERBOSITY`
 - `lru_cache`, `DisableableLRUCache`, `get_cache_dir`, `sha256sum`
-- All path helpers consumed by Hax-CV (`path_join`, `path_exists`, `path_mkdir`, `path_open`, `path_glob`, `path_basename`, `path_dirname`, `path_stem`, `path_is_s3`, `path_absolute`, `path_abs`, `path_dotenv`, `path_home`, `path_expanduser`, `path_relative_to`, `path_resolve`, `path_replace_suffix`, `path_rstrip`, `path_write_text`, `path_read_text`, `path_listdir`, `path_remove`, `path_remove_dir`, `path_copy`, `path_copy_dir`, `path_move`, `path_rename`, `path_symlink`, `path_islink`, `path_lexists`, `path_is_dir`, `path_is_file`, `path_is_image_file`, `path_is_video_file`, `path_getmtime`, `path_stat`, `path_dir_empty`, `path_exists_and_not_empty`, `path_startswith`, `path_endswith`, `path_newest_dir`, `path_newest_file`, `path_rglob`, `path_s3_bucket_name`, `is_glob_pattern`, `expand_glob_to_temp_dir`)
+- Public path helpers (`path_join`, `path_exists`, `path_mkdir`, `path_open`, `path_glob`, `path_basename`, `path_dirname`, `path_stem`, `path_is_s3`, `path_absolute`, `path_abs`, `path_dotenv`, `path_home`, `path_expanduser`, `path_relative_to`, `path_resolve`, `path_replace_suffix`, `path_rstrip`, `path_write_text`, `path_read_text`, `path_listdir`, `path_remove`, `path_remove_dir`, `path_copy`, `path_copy_dir`, `path_move`, `path_rename`, `path_symlink`, `path_islink`, `path_lexists`, `path_is_dir`, `path_is_file`, `path_is_image_file`, `path_is_video_file`, `path_getmtime`, `path_stat`, `path_dir_empty`, `path_exists_and_not_empty`, `path_startswith`, `path_endswith`, `path_newest_dir`, `path_newest_file`, `path_rglob`, `path_s3_bucket_name`, `is_glob_pattern`, `expand_glob_to_temp_dir`)
 - `get_elapsed_time`
 
 ### Migration

@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [dependency-groups]
-dev = ["pre-commit>=4.0.1"]
+dev = ["mypy==1.18.2", "pre-commit>=4.0.1", "ty==0.0.51"]
 
 [project]
 authors = [{ email = "me@afromero.co", name = "Andres Romero" }]
@@ -35,7 +35,7 @@ license-files = ["LICENSE.md"]
 name = "klogr"
 readme = "README.md"
 requires-python = ">=3.10"
-version = "0.2.2"
+version = "0.3.0"
 
 [project.urls]
 Changelog = "https://github.com/affromero/klogr/blob/main/CHANGELOG.md"
@@ -43,7 +43,7 @@ Homepage = "https://github.com/affromero/klogr"
 Issues = "https://github.com/affromero/klogr/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["klogr"]
+packages = ["src/klogr"]
 
 [tool.mypy]
 check_untyped_defs = true
@@ -52,6 +52,7 @@ disallow_untyped_defs = true
 enable_error_code = ["ignore-without-code"]
 explicit_package_bases = true
 follow_imports = "silent"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
 no_implicit_reexport = true
 plugins = ["pydantic.mypy"]
 show_error_codes = true
@@ -62,6 +63,7 @@ warn_unused_ignores = true
 exclude = ["logs/"]
 indent-width = 4
 line-length = 79
+src = ["src", "tests"]
 target-version = "py310"
 
 [tool.ruff.format]
@@ -74,11 +76,12 @@ skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
 fixable = ["ALL"]
-ignore = ["ANN401", "C901", "COM812", "D100", "D101", "D104", "D203", "D205", "D211", "D213", "D401", "D404", "D417", "E501", "ERA001", "F722", "F821", "G004", "ISC001", "N812", "PERF203", "PERF401", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLW2901", "RUF012", "S603", "S607", "SIM115", "SLF001", "T201", "TC010", "TRY301"]
+ignore = ["ANN401", "C901", "COM812", "D100", "D101", "D104", "D203", "D205", "D211", "D213", "D401", "D404", "D417", "E501", "ERA001", "F722", "F821", "G004", "ISC001", "N812", "PERF203", "PERF401", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLW2901", "RUF012", "S603", "S607", "SIM115", "SLF001", "T201", "TC010", "TRY301", "UP037"]
 select = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
 "examples/*.py" = ["INP001"]
+"tests/*.py" = ["S101"]
 
 [tool.tomlsort]
 all = true

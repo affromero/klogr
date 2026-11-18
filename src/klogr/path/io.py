@@ -3,12 +3,13 @@
 import os
 import shutil
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import IO, Any
 
 from rich import print as pprint
 
 from .ops import path_dirname
-from .query import path_is_dir, path_is_file, path_rglob
+from .query import path_is_file, path_rglob
 
 
 def path_rename(path: str | Path, new_name: str | Path) -> None:
@@ -145,17 +146,22 @@ def path_remove_dir(
         This function is useful in removing a directory.
 
     """
-    if path_is_dir(path):
-        for file in path_rglob(path, pattern="*"):
-            if verbose:
-                pprint(f"!!![bold red]Removing {file}")
-            if path_is_file(file):
-                path_remove(file)
-        if not only_files:
-            shutil.rmtree(path)
-    elif not non_exist_ok:
-        msg = f"{path} is not a directory"
-        raise ValueError(msg)
+    directory = Path(path)
+    if directory.is_symlink() or not directory.is_dir():
+        if not non_exist_ok:
+            msg = f"{path} is not a directory that can be removed"
+            raise ValueError(msg)
+        return
+
+    if not only_files:
+        if verbose:
+            pprint(f"!!![bold red]Removing {directory}")
+        shutil.rmtree(directory)
+        return
+
+    for file in path_rglob(directory, pattern="*"):
+        if path_is_file(file):
+            path_remove(file, verbose=verbose)
 
 
 def path_copy(src: str | Path, dst: str | Path) -> str:
@@ -297,3 +303,36 @@ def path_write_text(path: str | Path, text: str) -> None:
 
     """
     Path(path).write_text(text)
+
+
+def path_write_text_atomic(
+    path: str | Path, text: str, *, encoding: str = "utf-8"
+) -> None:
+    """Write text to a sibling temporary file and replace the destination.
+
+    Uses UTF-8 by default and preserves the supplied line endings. The new
+    file uses the temporary file's private permissions on POSIX (at most
+    0600). A destination symlink is replaced in place.
+
+    The destination changes only after the temporary file is written and
+    closed. The replacement is atomic on filesystems that support atomic
+    rename. This function does not sync the file or its parent directory to
+    disk, so it offers no crash durability guarantee.
+    """
+    destination = Path(path)
+    staging_path = None
+    try:
+        with NamedTemporaryFile(
+            mode="w",
+            encoding=encoding,
+            newline="",
+            dir=destination.parent,
+            delete=False,
+        ) as staging_file:
+            staging_path = Path(staging_file.name)
+            staging_file.write(text)
+        staging_path.replace(destination)
+        staging_path = None
+    finally:
+        if staging_path is not None:
+            staging_path.unlink(missing_ok=True)

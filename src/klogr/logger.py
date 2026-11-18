@@ -8,31 +8,40 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Sized
+from contextvars import ContextVar
 from dataclasses import field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from time import perf_counter
+from typing import TYPE_CHECKING, Any
 
 import dotenv
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
-from rich import progress
 from rich.box import ROUNDED, Box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
+
+from klogr import _progress
+from klogr._streams import FileMode, MessageRoute, StreamMirror
+from klogr._streams import StdoutDuplicator as _StdoutDuplicator
+from klogr.events import ProgressEvent, report_progress
+from klogr.time import get_elapsed_time
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
-    from typing import TypeVar
+    from collections.abc import Callable, Iterable, Iterator
+    from typing import TextIO, TypeVar
 
-    from rich.progress import Progress
+    from rich.console import RenderableType
 
     _T = TypeVar("_T")
 
 SECRET_PLACEHOLDERS = {"INFISICAL", "AWS-SECRET"}
+IterationsPerSecondColumn = _progress.IterationsPerSecondColumn
+StdoutDuplicator = _StdoutDuplicator
 
 
 def _load_non_secret_dotenv() -> None:
@@ -69,46 +78,6 @@ DEFAULT_VERBOSITY = {
     "save_image": not DISABLE_LOGGING,
     "make_image_grid": not DISABLE_LOGGING,
 }
-
-
-class StdoutDuplicator:
-    """Duplicates a standard stream to a file, stripping ANSI codes."""
-
-    def __init__(self, original_stdout: TextIO, file_path: str | Path) -> None:
-        """Initialize StdoutDuplicator.
-
-        Args:
-            original_stdout: The original standard stream
-            file_path: Path to the log file
-
-        """
-        self.original_stdout = original_stdout
-        self.file_handle: TextIO = Path(file_path).open("w", encoding="utf-8")
-
-    def write(self, data: str) -> int:
-        """Write to the original stream and strip ANSI codes from the file."""
-        result = self.original_stdout.write(data)
-
-        # Write to file, stripping ANSI codes
-        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-        clean_data = ansi_escape.sub("", data)
-        self.file_handle.write(clean_data)
-        self.file_handle.flush()
-
-        return result
-
-    def flush(self) -> None:
-        """Flush the original stream and file."""
-        self.original_stdout.flush()
-        self.file_handle.flush()
-
-    def close(self) -> None:
-        """Close file handle."""
-        self.file_handle.close()
-
-    def __getattr__(self, name: str) -> Any:
-        """Delegate other attributes to the original stream."""
-        return getattr(self.original_stdout, name)
 
 
 def override_from_dotenv(
@@ -159,27 +128,17 @@ def override_from_dotenv(
     return decorator
 
 
-class IterationsPerSecondColumn(progress.ProgressColumn):
-    """Iterations per second column."""
-
-    def render(self, task: progress.Task) -> Text:
-        """Render the iterations per second column."""
-        speed = task.finished_speed or task.speed
-        if speed is None:
-            return Text("? it/s", style="progress.data.speed")
-        return Text(f"{speed:.2f} it/s", style="progress.data.speed")
-
-
+@dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class LoggingTable:
-    """LoggingTable class."""
+    """Describe a Rich table."""
 
-    columns: list[str]
+    columns: list[str] = field(default_factory=list)
     """Columns of the table."""
-    colors: list[str]
+    colors: list[str] = field(default_factory=list)
     """Colors of the table. Same length as columns."""
-    rows: list[list[str]]
+    rows: list[list[str]] = field(default_factory=list)
     """Rows of the table. Same length as columns."""
-    title: str
+    title: str = ""
     """Title of the table."""
     box: Box = ROUNDED
     """Box style of the table. Default is ROUNDED."""
@@ -216,11 +175,17 @@ class LoggingRich:
     id: str = ""
     """ ID for the logger. """
 
-    stdout_duplicator: StdoutDuplicator | None = None
+    stdout_duplicator: _StdoutDuplicator | None = None
     """ Standard stream duplicator for file output when enabled. """
 
-    _console_before_dual_output: Console | None = field(
+    _stream_mirror: StreamMirror | None = field(
         default=None, init=False, repr=False
+    )
+
+    _route: ContextVar[MessageRoute | None] = field(
+        default_factory=lambda: ContextVar("klogr_route", default=None),
+        init=False,
+        repr=False,
     )
 
     _logged_once: set[str] = field(default_factory=set)
@@ -288,21 +253,13 @@ class LoggingRich:
             Items from the iterable.
 
         """
-        if total is None and hasattr(iterable, "__len__"):
-            total = len(iterable)  # type: ignore[arg-type]
+        if total is None and isinstance(iterable, Sized):
+            total = len(iterable)
 
         console = kwargs.pop("console", self.console)
-        with progress.Progress(
-            "[progress.description]{task.description}",
-            progress.BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            progress.MofNCompleteColumn(),
-            progress.TimeRemainingColumn(),
-            progress.TimeElapsedColumn(),
-            IterationsPerSecondColumn(),
+        with _progress.make_progress(
             console=console,
             transient=transient,
-            refresh_per_second=1,
             **kwargs,
         ) as prog:
             task_id = prog.add_task(description, total=total)
@@ -310,7 +267,7 @@ class LoggingRich:
                 yield item
                 prog.update(task_id, advance=1)
 
-    def progress(self) -> progress.Progress:
+    def progress(self) -> _progress.Progress:
         """Create and return a Rich Progress context manager with a custom progress bar.
 
         Returns:
@@ -325,17 +282,7 @@ class LoggingRich:
                     prog.update(task, advance=1)
 
         """
-        return progress.Progress(
-            "[progress.description]{task.description}",
-            progress.BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            progress.MofNCompleteColumn(),
-            progress.TimeRemainingColumn(),
-            progress.TimeElapsedColumn(),
-            IterationsPerSecondColumn(),
-            console=self.console,
-            refresh_per_second=1,  # bit slower updates
-        )
+        return _progress.make_progress(console=self.console)
 
     def panel(
         self,
@@ -377,44 +324,16 @@ class LoggingRich:
             return
         self._logged_once.add(msg)
         stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
+        stack_offset += 1
         self.success(msg, force=force, stack_offset=stack_offset, **kwargs)
 
     def success(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log a success message if the verbosity level for success messages is enabled."""
-        if not self.verbosity["success"] and not force:
-            return
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset + 1, level="success", **kwargs
-            )
-            return
-        self.log(
-            self.get_modes()["success"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log a success message."""
+        self._emit_level("success", msg, force=force, options=kwargs)
 
     def error(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log an error message if the verbosity level for errors is enabled."""
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if not self.verbosity["error"] and not force:
-            return
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset + 1, level="error", **kwargs
-            )
-            return
-        self.log(
-            self.get_modes()["error"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log an error message."""
+        self._emit_level("error", msg, force=force, options=kwargs)
 
     def warning_once(
         self, msg: str, *, force: bool = False, **kwargs: Any
@@ -424,46 +343,12 @@ class LoggingRich:
             return
         self._logged_once.add(msg)
         stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
+        stack_offset += 1
         self.warning(msg, force=force, stack_offset=stack_offset, **kwargs)
 
     def warning(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log a warning message if the verbosity level for warnings is.
-
-            enabled.
-
-        Arguments:
-            msg (str): The warning message to be logged.
-            force (bool): Whether to log the message regardless of the verbosity level.
-            **kwargs: Additional keyword arguments that can be passed to the log method.
-
-        Returns:
-            None: This function does not return any value.
-
-        Example:
-            >>> log_warning("This is a warning message", verbosity_level=2)
-
-        Note:
-            The verbosity level for warnings is controlled by the
-                'verbosity_level' keyword argument. If it is not
-            provided, the default level is used.
-
-        """
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if not self.verbosity["warning"] and not force:
-            return
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset + 1, level="warning", **kwargs
-            )
-            return
-        self.log(
-            self.get_modes()["warning"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log a warning message."""
+        self._emit_level("warning", msg, force=force, options=kwargs)
 
     def info_once(
         self, msg: str, *, force: bool = False, **kwargs: Any
@@ -473,26 +358,12 @@ class LoggingRich:
             return
         self._logged_once.add(msg)
         stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
+        stack_offset += 1
         self.info(msg, force=force, stack_offset=stack_offset, **kwargs)
 
     def info(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log an informational message with the specified message."""
-        if not self.verbosity["info"] and not force:
-            return None
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += self.stack_offset + 1
-        if JSON_FORMATTER:
-            self.log_json(
-                msg, stack_offset=stack_offset, level="info", **kwargs
-            )
-            return None
-        return self.log(
-            self.get_modes()["info"].format(msg),
-            stack_offset=stack_offset,
-            force=force,
-            **kwargs,
-        )
+        """Log an informational message."""
+        self._emit_level("info", msg, force=force, options=kwargs)
 
     def __jsonize(self, msg: str) -> str:
         """JSONize a message and add color formatting.
@@ -561,27 +432,54 @@ class LoggingRich:
         """
         if not self.verbosity["error"] and not force:
             return
-        self.error("\n" + self.__jsonize(msg), **kwargs)
+        stack_offset = kwargs.pop("stack_offset", 0)
+        self.error(
+            "\n" + self.__jsonize(msg),
+            force=force,
+            stack_offset=stack_offset + 1,
+            **kwargs,
+        )
 
     @override_from_dotenv("LOG_DEBUG")
-    def debug(self, msg: str, *, force: bool = False, **kwargs: Any) -> None:
-        """Log debug messages with additional keyword arguments if debug."""
-        if not self.verbosity["debug"] and not force:
+    def debug(
+        self,
+        msg: str | Callable[[], str],
+        *,
+        force: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        """Log debug text or build it on demand when enabled."""
+        self._emit_level("debug", msg, force=force, options=kwargs)
+
+    def _emit_level(
+        self,
+        level: str,
+        message: str | Callable[[], str],
+        *,
+        force: bool,
+        options: dict[str, Any],
+    ) -> None:
+        if not (force or self.verbosity[level]):
             return
-        stack_offset = kwargs.pop("stack_offset", 0)
-        stack_offset += (
-            self.stack_offset + 2
-        )  # counting the override_from_dotenv decorator
+        if not isinstance(message, str):
+            message = message()
+        stack_offset = options.pop("stack_offset", 0) + self.stack_offset + 2
+        if level == "debug":
+            stack_offset += 1  # The dotenv decorator adds a frame.
         if JSON_FORMATTER:
             self.log_json(
-                msg, stack_offset=stack_offset + 1, level="debug", **kwargs
+                message,
+                level=level,
+                force=force,
+                stack_offset=stack_offset - 1,
+                **options,
             )
             return
         self.log(
-            self.get_modes()["debug"].format(msg),
+            self.get_modes()[level].format(message),
             stack_offset=stack_offset,
             force=force,
-            **kwargs,
+            **options,
         )
 
     def convert_list_to_bullets(self, l_string: str) -> str:
@@ -614,7 +512,8 @@ class LoggingRich:
             return
         if isinstance(msg, str):
             msg = self.preprocess_msg(msg)
-        self.console.print(msg, **kwargs)
+        for console in self._message_consoles:
+            console.print(msg, **kwargs)
 
     def input(self, msg: str, **kwargs: Any) -> str:
         """Input a message to the console.
@@ -652,13 +551,11 @@ class LoggingRich:
         }
         if self.id:
             data["trace_id"] = self.id
-        # self.console.log(
-        #     RichJSON(json.dumps(data), indent=4, sort_keys=True),
-        #     **kwargs,
-        # )
-        self.console.print_json(
-            json.dumps(data), indent=indent, sort_keys=sort_keys
-        )
+        rendered_data = json.dumps(data)
+        for console in self._message_consoles:
+            console.print_json(
+                rendered_data, indent=indent, sort_keys=sort_keys
+            )
 
     def log(
         self,
@@ -666,7 +563,7 @@ class LoggingRich:
         /,
         *,
         stack_offset: int | None = None,
-        progress: Progress | None = None,
+        progress: _progress.Progress | None = None,
         force: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -679,13 +576,17 @@ class LoggingRich:
         if isinstance(msg, str):
             msg = self.preprocess_msg(msg)
         if JSON_FORMATTER:
-            stack_offset = kwargs.pop("_stack_offset", 0) + 1
+            stack_offset = kwargs.pop("_stack_offset")
             self.log_json(
-                msg, level="log", stack_offset=stack_offset, **kwargs
+                msg,
+                level="log",
+                stack_offset=stack_offset,
+                force=force,
+                **kwargs,
             )
             return
         _msg = self.get_modes()["log"].format(msg)
-        if progress is not None:
+        if progress is not None and self._active_route is None:
             kwargs["_stack_offset"] = (
                 self.stack_offset if stack_offset is None else stack_offset + 1
             )
@@ -694,7 +595,8 @@ class LoggingRich:
             )
             progress.console.log(_msg, **kwargs)
         else:
-            self.console.log(_msg, **kwargs)
+            for console in self._message_consoles:
+                console.log(_msg, **kwargs)
 
     def log_unittest(
         self,
@@ -718,7 +620,8 @@ class LoggingRich:
         if not self.verbosity["rule"]:
             return
         msg = self.preprocess_msg(msg)
-        self.console.rule(msg, **kwargs)
+        for console in self._message_consoles:
+            console.rule(msg, **kwargs)
 
     def print_exception(
         self,
@@ -731,7 +634,8 @@ class LoggingRich:
             self.error(msg, stack_offset=stack_offset)
         # check if already inside an exception
         if sys.exc_info()[0] is not None:
-            self.console.print_exception(**kwargs)
+            for console in self._message_consoles:
+                console.print_exception(**kwargs)
 
     def exception(
         self, msg: str, stack_offset: int = 1, **kwargs: Any
@@ -742,6 +646,74 @@ class LoggingRich:
     def status(self, msg: str, **kwargs: Any) -> Any:
         """Display a status message along with any additional keyword arguments in the console."""
         return self.console.status(msg, **kwargs)
+
+    @property
+    def _active_route(self) -> MessageRoute | None:
+        route = self._route.get()
+        while route is not None and not route.active:
+            route = route.previous
+        return route
+
+    @property
+    def _message_consoles(self) -> tuple[Console, ...]:
+        route = self._active_route
+        return (self.console,) if route is None else route.consoles()
+
+    @contextlib.contextmanager
+    def route(
+        self, *streams: TextIO, terminal: bool = True
+    ) -> Iterator[LoggingRich]:
+        """Route messages to open text streams and optionally the console.
+
+        Each nested scope replaces the previous route for the current
+        execution context. Exiting restores the previous route. Additional
+        streams receive plain text and stay open. Interactive progress and
+        prompts continue to use the logger's original console.
+        """
+        route = MessageRoute(
+            self.console,
+            streams,
+            terminal=terminal,
+            previous=self._active_route,
+        )
+        token = self._route.set(route)
+        try:
+            yield self
+        finally:
+            route.active = False
+            self._route.reset(token)
+
+    @contextlib.contextmanager
+    def route_file(
+        self,
+        path: str | Path,
+        *,
+        mode: FileMode,
+        terminal: bool = True,
+        encoding: str = "utf-8",
+    ) -> Iterator[LoggingRich]:
+        """Route messages to a file opened with the requested creation mode."""
+        with (
+            Path(path).open(FileMode(mode).value, encoding=encoding) as file,
+            self.route(file, terminal=terminal),
+        ):
+            yield self
+
+    def progress_events(
+        self,
+        *,
+        dashboard: Callable[[ProgressEvent], RenderableType] | None = None,
+        jsonl: TextIO | None = None,
+        interval: float = 1.0,
+    ) -> contextlib.AbstractContextManager[Callable[[ProgressEvent], None]]:
+        """Publish progress events to the active route and optional JSON Lines."""
+        return report_progress(
+            destinations=lambda: self._message_consoles,
+            terminal=self.console,
+            dashboard=dashboard,
+            jsonl=jsonl,
+            interval=interval,
+        )
 
     def unittest_logger(self, file_str: str) -> None:
         """Initialize a console object for logging unit test results."""
@@ -772,39 +744,26 @@ class LoggingRich:
             **kwargs: Additional arguments passed to Console constructor
 
         """
-        original_console = self._console_before_dual_output or self.console
-        stream_name = "stderr" if original_console.stderr else "stdout"
-        original_stream = (
-            self.stdout_duplicator.original_stdout
-            if self.stdout_duplicator is not None
-            else getattr(sys, stream_name)
+        mirror = StreamMirror(
+            self.console,
+            file_path,
+            previous=self._stream_mirror,
+            console_options=kwargs,
         )
-        console = Console(
-            **(
-                kwargs
-                | {"stderr": original_console.stderr, "force_terminal": True}
-            )
-        )
-        console._log_render.omit_repeated_times = RICH_OMIT_REPEATED_TIMES
-        duplicator = StdoutDuplicator(original_stream, file_path)
-        self.disable_dual_output()
-        self._console_before_dual_output = original_console
-        self.stdout_duplicator = duplicator
-        setattr(sys, stream_name, duplicator)
-        self.console = console
+        self._stream_mirror = mirror
+        self.stdout_duplicator = mirror.duplicator
+        self.console = mirror.console
+        self.console._log_render.omit_repeated_times = RICH_OMIT_REPEATED_TIMES
 
     def disable_dual_output(self) -> None:
         """Disable logging to both console and file simultaneously."""
-        duplicator = self.stdout_duplicator
-        original_console = self._console_before_dual_output
-        if duplicator is None or original_console is None:
+        mirror = self._stream_mirror
+        if mirror is None:
             return
-        stream_name = "stderr" if original_console.stderr else "stdout"
-        setattr(sys, stream_name, duplicator.original_stdout)
         self.stdout_duplicator = None
-        self._console_before_dual_output = None
-        self.console = original_console
-        duplicator.close()
+        self._stream_mirror = None
+        self.console = mirror.original_console
+        mirror.close()
 
     @contextlib.contextmanager
     def to_file(
@@ -829,7 +788,7 @@ class LoggingRich:
             self.disable_dual_output()
 
     @contextlib.contextmanager
-    def timed(self, description: str) -> Any:
+    def timed(self, description: str) -> Iterator[None]:
         """Log how long a block of work takes.
 
         Logs ``▶ {description}`` on entry and
@@ -842,18 +801,11 @@ class LoggingRich:
 
         """
         self.info(f"▶ {description}")
-        start = datetime.now(tz=timezone.utc)
+        start = perf_counter()
         try:
             yield
         finally:
-            elapsed = (datetime.now(tz=timezone.utc) - start).total_seconds()
-            days, rem = divmod(elapsed, 86400)
-            hours, rem = divmod(rem, 3600)
-            minutes, seconds = divmod(rem, 60)
-            formatted = (
-                f"{int(days):02d}d : {int(hours):02d}h : "
-                f"{int(minutes):02d}m : {int(seconds):02d}s"
-            )
+            formatted = get_elapsed_time(perf_counter() - start)
             self.success(f"✓ {description} — {formatted}")
 
     def kv(self, **fields: Any) -> None:
@@ -898,11 +850,26 @@ class LoggingRich:
         return " ".join(color_msg)
 
 
-@lru_cache(maxsize=128)
 def get_logger(
-    verbosity: dict[str, bool] = DEFAULT_VERBOSITY,
+    verbosity: dict[str, bool] | None = None,
     *,
     stderr: bool = False,
 ) -> LoggingRich:
-    """Return a cached logger that writes to stdout or, if requested, stderr."""
-    return LoggingRich(verbosity=verbosity, console=Console(stderr=stderr))
+    """Return a cached logger with optional verbosity overrides and stderr."""
+    levels = DEFAULT_VERBOSITY | (verbosity or {})
+    return _get_cached_logger(frozenset(levels.items()), stderr=stderr)
+
+
+@lru_cache(maxsize=128)
+def _get_cached_logger(
+    levels: frozenset[tuple[str, bool]], *, stderr: bool
+) -> LoggingRich:
+    return LoggingRich(verbosity=dict(levels), console=Console(stderr=stderr))
+
+
+# Preserve the runtime cache controls exposed by the previous decorator.
+vars(get_logger).update(
+    cache_clear=_get_cached_logger.cache_clear,
+    cache_info=_get_cached_logger.cache_info,
+    cache_parameters=_get_cached_logger.cache_parameters,
+)
