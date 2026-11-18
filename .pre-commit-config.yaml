@@ -1,236 +1,153 @@
----
-# $ pre-commit install --install-hooks
-# See https://pre-commit.com for more information
-# See https://pre-commit.com/hooks.html for more hooks
 default_install_hook_types:
     - pre-commit
+    - pre-merge-commit
     - post-checkout
     - post-merge
     - post-rewrite
 repos:
     - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v5.0.0
+      rev: v6.0.0
       hooks:
           - id: trailing-whitespace
-
           - id: end-of-file-fixer
-
           - id: mixed-line-ending
             args: [--fix, lf]
-
           - id: check-yaml
-            exclude: .pre-commit-config.yaml
-
           - id: check-added-large-files
             args: [--maxkb=2000]
-
           - id: check-merge-conflict
           - id: check-case-conflict
           - id: check-json
           - id: check-toml
-            exclude: uv\.lock
           - id: pretty-format-json
             args: [--autofix, --no-ensure-ascii, --no-sort-keys]
-
-          # - id: double-quote-string-fixer
-          #   exclude: ^dependencies/|^experiments/dependencies/|^experiments/
-
-    # - repo: https://github.com/psf/black-pre-commit-mirror
-    #   rev: 24.10.0
-    #   hooks:
-    #       - id: black
-    #       # It is recommended to specify the latest version of Python
-    #       # supported by your project here, or alternatively use
-    #       # pre-commit's default_language_version, see
-    #       # https://pre-commit.com/#top_level-default_language_version
-    #         language_version: python3.10
-    #         exclude: ^dependencies/|^experiments/dependencies/|^experiments/|uv\.lock|tools/generative/pipelines/|configs/hax_ml/
-    #         args: [--line-length=79, --target-version=py310, --quiet]
-
-    # - repo: https://github.com/PyCQA/docformatter # there is an issue with the latest version and python_env - uncomment as soon as possible
-    #   rev: v1.3.1
-    #   hooks:
-    #       - id: docformatter
-    #         language: python
-    #         exclude: ^dependencies/|^experiments/dependencies/|^experiments/|uv\.lock|tools/generative/pipelines/|configs/hax_ml/
-    #         args: [--in-place, --wrap-descriptions, '120']
-
     - repo: https://github.com/jumanjihouse/pre-commit-hook-yamlfmt
-      rev: 0.2.3 # or other specific tag
+      rev: 0.2.3
       hooks:
           - id: yamlfmt
-            exclude: .pre-commit-config.yaml
-
-
-    # - repo: https://github.com/asottile/pyupgrade
-    #   rev: v3.3.1
-    #   hooks:
-    #       - id: pyupgrade
-    #         args:
-    #             # - --py36-plus
-    #             # - --py37-plus
-    #             # - --py38-plus
-    #             - --py39-plus
-    #         #     # - --py311-plus
-    #         exclude: ^dependencies/|^dependencies/|^experiments/dependencies/|^experiments/
-
+            exclude: ^(\.pre-commit-config\.yaml|\.github/workflows/publish\.yml)$
     - repo: https://github.com/lovesegfault/beautysh
       rev: v6.2.1
       hooks:
           - id: beautysh
-            exclude: uv\.lock
-
-
-
-    # - repo: https://github.com/pycqa/isort
-    #   rev: 5.11.2
-    #   hooks:
-    #       - id: isort
-    #         name: isort
-    #         entry: isort
-    #         language: python
-    #         types: [python]
-    #         exclude: ^^dependencies/|^experiments/|^cli/
-    #         args: [--line-length=89, --multi-line=3, --force-grid-wrap=0, --trailing-comma, --use-parentheses, --ensure-newline-before-comments]
-    #         # additional_dependencies: [isort>=5.12.0]
-
+            exclude: ^scripts/hooks/
+    - repo: https://github.com/astral-sh/ruff-pre-commit
+      rev: v0.15.21
+      hooks:
+          - id: ruff-check
+            args: [--fix]
+          - id: ruff-format
     - repo: local
       hooks:
-          - id: toml-sort-fix
-            name: toml-sort-fix
-            entry: toml-sort
-            args: [--in-place]
-            language: python
-            exclude: uv\.lock
-            types: [toml]
-            additional_dependencies: [toml-sort>=0.23.1]
-
           - id: toml-sort
             name: toml-sort
-            entry: toml-sort
-            args: [--check]
+            entry: toml-sort --in-place
             language: python
-            exclude: uv\.lock
-            types: [toml]
             additional_dependencies: [toml-sort>=0.23.1]
-
-    - repo: https://github.com/pycqa/pylint
-      rev: v3.3.7
-      hooks:
-          - id: pylint
-            name: pylint
-            entry: pylint
+            types: [toml]
+            exclude: ^uv\.lock$
+          - id: check-file-line-count
+            name: check-file-line-count
+            entry: scripts/hooks/check_file_line_count.sh
             language: system
             types: [python]
-            exclude: uv\.lock
-            args: [
-              --disable=all, # disable all rules
-              --enable=E0401, # import-error
-              --enable=E1123, # unexpected-keyword-arg
-              --enable=E1125, # missing-kwoa
-              --enable=E1101, # no-member
-            ]
-            stages: [manual]
-          # ruff is trying to include more of this: https://github.com/astral-sh/ruff/issues/970
-
-    - repo: https://github.com/astral-sh/ruff-pre-commit
-      # Ruff version.
-      rev: v0.12.7
-      hooks:
-        # Run the linter.
-          - id: ruff
-            args: [
-              --fix,
-              --unsafe-fixes,
-              --select,
-              ALL,
-              --ignore, C901, # class too complex # TODO: remove this at some point
-              --ignore, D203, # 1 blank line required before class docstring
-              --ignore, D211, # No blank lines allowed before class docstring
-              --ignore, D213, # Multi-line docstring summary should start at the second line
-              --ignore, F722, # jaxtyping annotations
-              --ignore, F821, # jaxtyping annotations with the name in strings
-              --ignore, E501, # Line too long ( > 79 characters)
-              --ignore, T201, # Checks for print statements and remove them
-              --ignore, COM812, # Missing trailing comma in a dictionary
-              --ignore, ISC001, # Checks for implicitly concatenated strings on a single line.
-              --ignore, G004, # Logging statement uses f-string
-              --ignore, ERA001, # Found commented-out code
-              --ignore, S607, # Starting a process with a partial executable path
-              --ignore, S603, # `subprocess` call: check for execution of untrusted input
-              --ignore, ANN401, # Dynamically typed expressions (typing.Any) are disallowed in `**kwargs`
-              --ignore, RUF012, # Mutable class attributes should be annotated with `typing.ClassVar
-              --ignore, PERF401, # Use a list comprehension to create a transformed list
-              --ignore, SIM115, # Use a context manager for opening files
-              --ignore, PERF203, # `try`-`except` within a loop incurs performance overhead
-              --ignore, PLW2901, # `for` loop variable overwritten by assignment target
-              --ignore, TCH010, # Invalid string member in `X | Y`-style union type
-              --ignore, N812, # Lowercase `functional` imported as non-lowercase `F`
-              --ignore, SLF001, # Private member accessed
-              --ignore, TRY301, # Abstract `raise` to an inner function
-              --ignore, NPY002, # Replace legacy `np.random.random` call with `np.random.Generator`
-              --ignore, TD003, # Missing issue link on the line following a TODO
-              --ignore, FIX002, # Line contains TODO, consider resolving the issue
-              --ignore, S311, # Standard pseudo-random generators are not suitable for cryptographic purposes
-              --ignore, TC006, # Add quotes to type expression in `typing.cast()`
-              --ignore, TRY401, # Redundant exception object included in `logging.exception` call
-              --ignore, BLE001, # Do not catch blind exception: `Exception`'
-              --ignore, PLR0911, # Too many return statements
-              --ignore, PLR0912, # Too many branches
-              --ignore, PLR0913, # Too many arguments in function definition
-              --ignore, PLR0915, # Too many statements
-              --ignore, PLR2004, # Magic value used in comparison, consider replacing `0.1` with a constant variable
-              --ignore, PLC0415, # `import` should be at the top-level of a file
-              --ignore, PT028, # Test function parameter `<>` has default argument
-            ]
-            exclude: uv\.lock
-        # Run the formatter.
-          - id: ruff-format
-            exclude: uv\.lock
-    # - repo: https://github.com/jvllmr/poetry-types
-    #   rev: v0.4.0
-    #   hooks:
-    #       - id: poetry-types
-
-    - repo: https://github.com/pre-commit/mirrors-mypy
-      rev: v1.18.2
-      hooks:
-          - id: mypy
-            name: mypy
-            entry: mypy
-            language: python
-            types_or: [python, pyi]
-            exclude: uv\.lock
-            require_serial: true
+          - id: check-directory-file-count
+            name: check-directory-file-count
+            entry: scripts/hooks/check_directory_file_count.sh
+            language: system
             pass_filenames: false
-            # args: [--strict, --ignore-missing-imports]
-            args: [--ignore-missing-imports, --scripts-are-modules, --install-types, --non-interactive, --warn-unused-ignores, --show-error-codes, --check-untyped-defs,
-                --disallow-incomplete-defs, --explicit-package-bases, --warn-redundant-casts, --strict-equality, --strict-equality-for-none, --follow-untyped-imports, src/klogr]
-            additional_dependencies:
-                - pydantic
-                - types-requests
-            # mypy --install-types
-
-
-    - repo: https://github.com/astral-sh/uv-pre-commit
-      # uv version.
-      rev: 0.8.3
-      hooks:
-          - id: uv-sync
-            stages: [pre-commit, pre-merge-commit, pre-push] # not run during manual. manual is run in Github, and this one is expensive
-          - id: uv-export
-            args: [--frozen, --output-file=requirements.txt, --no-hashes]
+            always_run: true
             stages: [pre-commit, pre-merge-commit, pre-push]
-
-
-    # - repo: https://github.com/oxsecurity/megalinter # sudo apt install npm && sudo npm install mega-linter-runner -g
-    # # install docker https://docs.docker.com/engine/install/ubuntu/#set-up-the-repository
-    # # install with sudo once: sudo mega-linter-runner .
-    #   rev: v6.8.0 # Git tag specifying the hook, not mega-linter-runner, version
-    #   hooks:
-    #       - id: megalinter-incremental # Faster, less thorough
-    #         stages:
-    #             - commit
-    #       - id: megalinter-full # Slower, more thorough
-    #         stages:
-    #             - push
+            args: [--include-regex, "[.](py|sh)$"]
+          - id: check-tests-under-tests
+            name: check-tests-under-tests
+            entry: scripts/hooks/check_tests_under_tests.sh
+            language: system
+            pass_filenames: false
+            always_run: true
+            stages: [pre-commit, pre-merge-commit, pre-push]
+          - id: check-array-annotations
+            name: check-array-annotations
+            entry: scripts/hooks/python/check_array_annotations.sh
+            language: system
+            types: [python]
+          - id: check-sys-path-manipulation
+            name: check-sys-path-manipulation
+            entry: scripts/hooks/python/check_sys_path_manipulation.sh
+            language: system
+            types: [python]
+          - id: check-getattr-setattr
+            name: check-getattr-setattr
+            entry: scripts/hooks/python/check_getattr_setattr.sh
+            language: system
+            types: [python]
+          - id: check-lightweight-init
+            name: check-lightweight-init
+            entry: scripts/hooks/python/check_lightweight_init.sh
+            language: system
+            types: [python]
+          - id: check-all-in-init
+            name: check-all-in-init
+            entry: scripts/hooks/python/check_all_in_init.sh
+            language: system
+            types: [python]
+          - id: check-private-impl-imports
+            name: check-private-impl-imports
+            entry: scripts/hooks/python/check_private_impl_imports.sh
+            language: system
+            types: [python]
+          - id: check-no-dataclass
+            name: check-no-dataclass
+            entry: scripts/hooks/python/models/check_no_dataclass.sh
+            language: system
+            types: [python]
+          - id: check-data-holder-naming
+            name: check-data-holder-naming
+            entry: scripts/hooks/python/models/check_data_holder_naming.sh
+            language: system
+            types: [python]
+          - id: check-tuple-param-bypass
+            name: check-tuple-param-bypass
+            entry: scripts/hooks/python/models/check_tuple_param_bypass.sh
+            language: system
+            types: [python]
+          - id: check-declared-instance-attrs
+            name: check-declared-instance-attrs
+            entry: scripts/hooks/python/models/check_declared_instance_attrs.sh
+            language: system
+            types: [python]
+          - id: check-runtime-loader-paths
+            name: check-runtime-loader-paths
+            entry: scripts/hooks/check_runtime_loader_paths.sh
+            language: system
+            types_or: [python, shell]
+            exclude: ^scripts/hooks/
+          - id: uv-sync
+            name: sync development environment
+            entry: uv sync --inexact
+            language: system
+            pass_filenames: false
+            always_run: true
+            stages: [pre-commit, pre-merge-commit, pre-push]
+          - id: ty
+            name: ty check
+            entry: uv run --no-sync ty check --error-on-warning src tests
+            language: system
+            types_or: [python, pyi]
+            pass_filenames: false
+            require_serial: true
+          - id: mypy
+            name: strict mypy
+            entry: uv run --no-sync mypy --strict --follow-untyped-imports src/klogr tests
+            language: system
+            stages: [manual]
+            types_or: [python, pyi]
+            pass_filenames: false
+            require_serial: true
+          - id: unittest
+            name: full unit test suite
+            entry: uv run --no-sync python -m unittest discover -v
+            language: system
+            pass_filenames: false
+            always_run: true
+            stages: [pre-merge-commit]

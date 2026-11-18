@@ -269,9 +269,10 @@ src/klogr/
 
 ```bash
 uv sync
-.venv/bin/pre-commit run --all-files
-.venv/bin/pytest
-.venv/bin/mypy src/klogr/
+uv run pre-commit install --install-hooks
+uv run pre-commit run --all-files
+uv run python -m unittest discover -v
+uv run mypy --strict --follow-untyped-imports src/klogr tests
 ```
 
 ## License

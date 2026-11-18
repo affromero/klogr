@@ -72,7 +72,7 @@ just surfaces it in the README example set.
 ### Fixed
 
 - `sha256sum>=2024.4.26` → `sha256sum>=2022.6.11`. The 2024 lower bound
-  broke `uv sync` on macOS (`hax-cv[mps]` split) where only the older
+  broke `uv sync` on macOS where only the older
   `sha256sum` wheel is published. klogr only uses the long-stable
   `sha256sum.sha256sum()` function, available since the 2022 versions.
 
@@ -167,7 +167,7 @@ First release under the new name `klogr`. Previously published as `difflogtest`.
 
 - `get_logger`, `LoggingRich`, `LoggingTable`, `DEFAULT_VERBOSITY`
 - `lru_cache`, `DisableableLRUCache`, `get_cache_dir`, `sha256sum`
-- All path helpers consumed by Hax-CV (`path_join`, `path_exists`, `path_mkdir`, `path_open`, `path_glob`, `path_basename`, `path_dirname`, `path_stem`, `path_is_s3`, `path_absolute`, `path_abs`, `path_dotenv`, `path_home`, `path_expanduser`, `path_relative_to`, `path_resolve`, `path_replace_suffix`, `path_rstrip`, `path_write_text`, `path_read_text`, `path_listdir`, `path_remove`, `path_remove_dir`, `path_copy`, `path_copy_dir`, `path_move`, `path_rename`, `path_symlink`, `path_islink`, `path_lexists`, `path_is_dir`, `path_is_file`, `path_is_image_file`, `path_is_video_file`, `path_getmtime`, `path_stat`, `path_dir_empty`, `path_exists_and_not_empty`, `path_startswith`, `path_endswith`, `path_newest_dir`, `path_newest_file`, `path_rglob`, `path_s3_bucket_name`, `is_glob_pattern`, `expand_glob_to_temp_dir`)
+- Public path helpers (`path_join`, `path_exists`, `path_mkdir`, `path_open`, `path_glob`, `path_basename`, `path_dirname`, `path_stem`, `path_is_s3`, `path_absolute`, `path_abs`, `path_dotenv`, `path_home`, `path_expanduser`, `path_relative_to`, `path_resolve`, `path_replace_suffix`, `path_rstrip`, `path_write_text`, `path_read_text`, `path_listdir`, `path_remove`, `path_remove_dir`, `path_copy`, `path_copy_dir`, `path_move`, `path_rename`, `path_symlink`, `path_islink`, `path_lexists`, `path_is_dir`, `path_is_file`, `path_is_image_file`, `path_is_video_file`, `path_getmtime`, `path_stat`, `path_dir_empty`, `path_exists_and_not_empty`, `path_startswith`, `path_endswith`, `path_newest_dir`, `path_newest_file`, `path_rglob`, `path_s3_bucket_name`, `is_glob_pattern`, `expand_glob_to_temp_dir`)
 - `get_elapsed_time`
 
 ### Migration
