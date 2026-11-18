@@ -159,6 +159,16 @@ also mirrors direct writes to the selected standard stream.
 
 ### Report stage and frame progress
 
+![Live dashboard showing decode and score stages and their output files](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/dashboard.gif)
+
+The [dashboard example](examples/06_live_dashboard.py) renders a table of stage
+statuses, frame counts, and elapsed times. It also writes `run.log` and
+`events.jsonl` to the directory you pass in.
+
+```bash
+uv run examples/06_live_dashboard.py logs/demo
+```
+
 ```python
 from klogr import FileMode, ProgressEvent, ProgressStatus, get_logger
 
@@ -183,6 +193,18 @@ for JSON Lines. Text logs throttle repeated running updates per stage and
 retain transitions, completion, and failure. Pass a `dashboard` callback
 that returns a Rich renderable to customize the interactive terminal display.
 Redirected sessions and file sinks receive plain progress lines.
+
+### Format a training metrics table
+
+![Terminal recording of a training metrics table with colored columns](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/table.gif)
+
+Use `LoggingTable` to set the title, column names, colors, and rows. The
+[table example](examples/02_pretty_tables.py) shows five epochs of training
+and validation loss.
+
+```bash
+uv run examples/02_pretty_tables.py
+```
 
 ### Log to console AND a file at the same time
 
