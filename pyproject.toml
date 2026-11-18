@@ -80,6 +80,7 @@ select = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
 "examples/*.py" = ["INP001"]
+"tests/*.py" = ["S101"]
 
 [tool.tomlsort]
 all = true

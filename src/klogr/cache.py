@@ -1,22 +1,32 @@
 """LRU cache with a disable hook, plus on-disk cache helpers."""
 
+from __future__ import annotations
+
 import functools
 import inspect
 import os
 import sys
-from collections.abc import Callable
+from collections import OrderedDict
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextvars import ContextVar, Token
-from typing import Any, Protocol, TypeVar, cast, runtime_checkable
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol, TypeVar, cast, runtime_checkable
 
 from beartype import beartype
 from dotenv import dotenv_values
 from jaxtyping import jaxtyped
+from pydantic.dataclasses import dataclass
 from sha256sum import sha256sum as _sha256sum
 
 from .logger import get_logger
-from .path import path_dotenv, path_expanduser, path_join
+from .path import path_expanduser, path_join
 
-_T = TypeVar("_T")
+if TYPE_CHECKING:
+    from typing_extensions import Self
+
+_Function = TypeVar("_Function", bound=Callable[..., object])
+_Key = TypeVar("_Key")
+_Value = TypeVar("_Value")
 
 logger = get_logger()
 
@@ -28,29 +38,22 @@ _lru_cache_disabled_override: ContextVar[bool | None] = ContextVar(
 
 @runtime_checkable
 class _CachedFunction(Protocol):
-    def cache_info(self) -> Any: ...
+    def cache_info(self) -> object: ...
 
     _original_qualname: str
 
     # Support both sync and async calls
-    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+    def __call__(self, *args: object, **kwargs: object) -> object: ...
 
 
+@dataclass(eq=False, repr=False)
 class CacheInfo:
     """Unified cache info class for both sync and async caches."""
 
-    def __init__(
-        self,
-        hits: int = 0,
-        misses: int = 0,
-        maxsize: int | None = None,
-        currsize: int = 0,
-    ) -> None:
-        """Initialize the cache info."""
-        self.hits = hits
-        self.misses = misses
-        self.maxsize = maxsize
-        self.currsize = currsize
+    hits: int = 0
+    misses: int = 0
+    maxsize: int | None = None
+    currsize: int = 0
 
     def __repr__(self) -> str:
         """Represent the cache info."""
@@ -60,30 +63,34 @@ class CacheInfo:
 _cached_functions: list[_CachedFunction] = []
 
 
-def _get_cached_function_info(
-    func: _CachedFunction | Callable[[_T], _T],
-) -> str:
+def _get_cached_function_info(func: Callable[..., object]) -> str:
     """Get function info."""
-    cache_info = func.cache_info() if hasattr(func, "cache_info") else None
+    cache_info = (
+        func.cache_info() if isinstance(func, _CachedFunction) else None
+    )
     info = f" || {cache_info}" if cache_info else ""
 
-    def _get_wrapped(
-        func: _CachedFunction | Callable[[_T], _T],
-    ) -> Callable[[_T], _T]:
-        """Get the wrapped function."""
-        if hasattr(func, "__wrapped__"):
-            return _get_wrapped(func.__wrapped__)
-        return func
-
-    wrapped_func = _get_wrapped(func)
+    wrapped_func = inspect.unwrap(func)
+    name = getattr(
+        wrapped_func, "__qualname__", type(wrapped_func).__qualname__
+    )
 
     try:
         file_info = f" (at {inspect.getfile(wrapped_func)}:{inspect.getsourcelines(wrapped_func)[1]})"
     except (OSError, TypeError):
         # Handle cases where source code can't be retrieved (e.g., decorated functions)
-        file_info = f" (at {getattr(wrapped_func, '__module__', 'unknown')}.{wrapped_func.__qualname__})"
+        file_info = (
+            f" (at {getattr(wrapped_func, '__module__', 'unknown')}.{name})"
+        )
 
-    return f"{wrapped_func.__qualname__}{file_info}{info}"
+    return f"{name}{file_info}{info}"
+
+
+def _attach_cache_info(
+    function: Callable[..., object], info: Callable[[], object], name: str
+) -> _CachedFunction:
+    vars(function).update(cache_info=info, _original_qualname=name)
+    return cast("_CachedFunction", function)
 
 
 def is_lru_cache_disabled() -> bool:
@@ -96,7 +103,25 @@ def is_lru_cache_disabled() -> bool:
     override = _lru_cache_disabled_override.get()
     if override is not None:
         return override
-    return dotenv_values(path_dotenv()).get("DISABLE_LRU_CACHE") == "True"
+    configured = os.getenv("DISABLE_LRU_CACHE")
+    if configured is None:
+        configured = dotenv_values(Path(".env")).get("DISABLE_LRU_CACHE")
+    return configured == "True"
+
+
+def _store_cached(
+    cache: OrderedDict[_Key, _Value],
+    key: _Key,
+    value: _Value,
+    *,
+    maxsize: int | None,
+) -> None:
+    if maxsize is not None and maxsize <= 0:
+        return
+    cache[key] = value
+    cache.move_to_end(key)
+    if maxsize is not None and len(cache) > maxsize:
+        cache.popitem(last=False)
 
 
 class DisableableLRUCache:
@@ -125,11 +150,13 @@ class DisableableLRUCache:
 
     """
 
+    _token: Token[bool | None] | None
+
     def __init__(self) -> None:
         """Initialize the context manager."""
-        self._token: Token[bool | None] | None = None
+        self._token = None
 
-    def __enter__(self) -> "DisableableLRUCache":
+    def __enter__(self) -> Self:
         """Enter the context and disable LRU cache."""
         self._token = _lru_cache_disabled_override.set(True)
         return self
@@ -146,7 +173,7 @@ class DisableableLRUCache:
 
 
 def show_all_cache_info(
-    func: _CachedFunction | Callable[[_T], _T] | None = None,
+    func: Callable[..., object] | None = None,
 ) -> None:
     """Show cache info for all cached functions."""
     msg = "-" * 30 + "\n"
@@ -156,7 +183,8 @@ def show_all_cache_info(
     else:
         funcs = [_func for _func in _cached_functions if _func == func]
         if len(funcs) == 0:
-            error = f"Function {func.__qualname__} not found in cache"  # type: ignore[union-attr]
+            name = getattr(func, "__qualname__", type(func).__qualname__)
+            error = f"Function {name} not found in cache"
             raise ValueError(error)
     for _func in funcs:
         # hits means the function was called with the same arguments
@@ -171,7 +199,7 @@ def lru_cache(
     *,
     max_misses: int = -1,
     print_cache_info: bool = True,
-) -> Callable[[_T], _T]:
+) -> Callable[[_Function], _Function]:
     """Decorate a function with functools.lru_cache, unless in unit test mode.
 
     This decorator wraps a function with functools.lru_cache, providing
@@ -213,7 +241,7 @@ def lru_cache(
 
     """
 
-    def decorator(func: Callable[[_T], _T]) -> Callable[[_T], _T]:
+    def decorator(func: _Function) -> _Function:
         """Apply an LRU cache to the input function or return the function itself.
 
         This decorator function applies an LRU cache to the given function
@@ -221,10 +249,10 @@ def lru_cache(
             unittest mode, the function is returned as is.
 
         Arguments:
-            func (Callable[..., Any]): The function to be decorated.
+            func (Callable[..., object]): The function to be decorated.
 
         Returns:
-            Callable[..., Any]: The decorated function with an applied LRU
+            Callable[..., object]: The decorated function with an applied LRU
                 cache if not in unittest mode, or the original function if
                 in unittest mode.
 
@@ -238,6 +266,9 @@ def lru_cache(
                 used in unittest mode to avoid cached results.
 
         """
+        call: Callable[..., object] = func
+        name = getattr(call, "__qualname__", type(call).__qualname__)
+        has_capacity = maxsize is None or maxsize > 0
         # Check if function is async, async generator, or regular generator
         is_async = inspect.iscoroutinefunction(func)
         is_async_gen = inspect.isasyncgenfunction(func)
@@ -250,15 +281,16 @@ def lru_cache(
             # ------------------------------
             if is_gen:
                 # For regular generators, cache the sequence of yielded values
-                gen_cache: dict[tuple[Any, ...], list[Any]] = {}
-                gen_cache_order: list[tuple[Any, ...]] = []
+                gen_cache: OrderedDict[tuple[object, ...], list[object]] = (
+                    OrderedDict()
+                )
                 gen_hits = 0
                 gen_misses = 0
 
                 def _create_cached_generator(
-                    args: tuple[Any, ...],
-                    kwargs_items: tuple[tuple[str, Any], ...],
-                ) -> Any:
+                    args: tuple[object, ...],
+                    kwargs_items: tuple[tuple[str, object], ...],
+                ) -> Iterator[object]:
                     """Create a generator that yields from cached values or computes new ones."""
                     nonlocal gen_hits, gen_misses
 
@@ -266,12 +298,11 @@ def lru_cache(
                     key = (args, kwargs_items)
 
                     # Check if sequence is cached
-                    if key in gen_cache:
+                    if has_capacity and key in gen_cache:
+                        gen_cache.move_to_end(key)
                         gen_hits += 1
                         if print_cache_info:
-                            logger.debug(
-                                f"Cache hit for generator {func.__qualname__}"
-                            )
+                            logger.debug(f"Cache hit for generator {name}")
                         # Yield from cached sequence
                         for value in gen_cache[key]:
                             yield value
@@ -279,34 +310,32 @@ def lru_cache(
 
                     # Compute result by consuming the generator
                     gen_misses += 1
-                    cached_values: list[Any] = []
-                    kwargs_dict = dict(kwargs_items)
-                    gen = func(*args, **kwargs_dict)
-                    for value in gen:  # type: ignore[attr-defined]
+                    cached_values: list[object] = []
+                    gen = cast(
+                        "Iterator[object]", call(*args, **dict(kwargs_items))
+                    )
+                    for value in gen:
                         cached_values.append(value)
                         yield value
 
-                    # Cache the sequence with LRU eviction
-                    if len(gen_cache) >= (maxsize or 128):
-                        # Remove oldest entry
-                        oldest_key = gen_cache_order.pop(0)
-                        del gen_cache[oldest_key]
-
-                    gen_cache[key] = cached_values
-                    gen_cache_order.append(key)
+                    _store_cached(
+                        gen_cache, key, cached_values, maxsize=maxsize
+                    )
 
                     if print_cache_info:
                         logger.debug(
-                            f"Cached sequence for generator {func.__qualname__} (cache size: {len(gen_cache)}, sequence length: {len(cached_values)})"
+                            f"Cached sequence for generator {name} (cache size: {len(gen_cache)}, sequence length: {len(cached_values)})"
                         )
 
                     # Check max misses
                     if max_misses != -1 and gen_misses > max_misses:
-                        msg = f"Function {func.__qualname__} has {gen_misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
+                        msg = f"Function {name} has {gen_misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
                         raise ValueError(msg)
 
                 @functools.wraps(func)
-                def gen_cached_wrapper(*args: Any, **kwargs: Any) -> Any:
+                def gen_cached_wrapper(
+                    *args: object, **kwargs: object
+                ) -> Iterator[object]:
                     """Cache yielded sequences."""
                     # Create cache key components
                     kwargs_items = tuple(sorted(kwargs.items()))
@@ -323,28 +352,27 @@ def lru_cache(
                         currsize=len(gen_cache),
                     )
 
-                gen_cached_wrapper.cache_info = cache_info  # type: ignore[attr-defined]
-                gen_cached_wrapper._original_qualname = func.__qualname__  # type: ignore[attr-defined]
                 _cached_functions.append(
-                    cast("_CachedFunction", gen_cached_wrapper)
+                    _attach_cache_info(gen_cached_wrapper, cache_info, name)
                 )
 
-                return gen_cached_wrapper
+                return cast("_Function", gen_cached_wrapper)
 
             # ------------------------------
             # ASYNC GENERATORS
             # ------------------------------
             if is_async_gen:
                 # For async generators, cache the sequence of yielded values
-                async_gen_cache: dict[tuple[Any, ...], list[Any]] = {}
-                async_gen_cache_order: list[tuple[Any, ...]] = []
+                async_gen_cache: OrderedDict[
+                    tuple[object, ...], list[object]
+                ] = OrderedDict()
                 async_gen_hits = 0
                 async_gen_misses = 0
 
                 async def _create_cached_async_generator(
-                    args: tuple[Any, ...],
-                    kwargs_items: tuple[tuple[str, Any], ...],
-                ) -> Any:
+                    args: tuple[object, ...],
+                    kwargs_items: tuple[tuple[str, object], ...],
+                ) -> AsyncIterator[object]:
                     """Create an async generator that yields from cached values or computes new ones."""
                     nonlocal async_gen_hits, async_gen_misses
 
@@ -352,11 +380,12 @@ def lru_cache(
                     key = (args, kwargs_items)
 
                     # Check if sequence is cached
-                    if key in async_gen_cache:
+                    if has_capacity and key in async_gen_cache:
+                        async_gen_cache.move_to_end(key)
                         async_gen_hits += 1
                         if print_cache_info:
                             logger.debug(
-                                f"Cache hit for async generator {func.__qualname__}"
+                                f"Cache hit for async generator {name}"
                             )
                         # Yield from cached sequence
                         for value in async_gen_cache[key]:
@@ -365,34 +394,33 @@ def lru_cache(
 
                     # Compute result by consuming the generator
                     async_gen_misses += 1
-                    cached_values: list[Any] = []
-                    kwargs_dict = dict(kwargs_items)
-                    async_gen = func(*args, **kwargs_dict)
-                    async for value in async_gen:  # type: ignore[attr-defined]
+                    cached_values: list[object] = []
+                    async_gen = cast(
+                        "AsyncIterator[object]",
+                        call(*args, **dict(kwargs_items)),
+                    )
+                    async for value in async_gen:
                         cached_values.append(value)
                         yield value
 
-                    # Cache the sequence with LRU eviction
-                    if len(async_gen_cache) >= (maxsize or 128):
-                        # Remove oldest entry
-                        oldest_key = async_gen_cache_order.pop(0)
-                        del async_gen_cache[oldest_key]
-
-                    async_gen_cache[key] = cached_values
-                    async_gen_cache_order.append(key)
+                    _store_cached(
+                        async_gen_cache, key, cached_values, maxsize=maxsize
+                    )
 
                     if print_cache_info:
                         logger.debug(
-                            f"Cached sequence for async generator {func.__qualname__} (cache size: {len(async_gen_cache)}, sequence length: {len(cached_values)})"
+                            f"Cached sequence for async generator {name} (cache size: {len(async_gen_cache)}, sequence length: {len(cached_values)})"
                         )
 
                     # Check max misses
                     if max_misses != -1 and async_gen_misses > max_misses:
-                        msg = f"Function {func.__qualname__} has {async_gen_misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
+                        msg = f"Function {name} has {async_gen_misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
                         raise ValueError(msg)
 
                 @functools.wraps(func)
-                def async_gen_cached_wrapper(*args: Any, **kwargs: Any) -> Any:
+                def async_gen_cached_wrapper(
+                    *args: object, **kwargs: object
+                ) -> AsyncIterator[object]:
                     """Async generator wrapper that caches yielded sequences."""
                     # Create cache key components
                     kwargs_items = tuple(sorted(kwargs.items()))
@@ -409,13 +437,13 @@ def lru_cache(
                         currsize=len(async_gen_cache),
                     )
 
-                async_gen_cached_wrapper.cache_info = cache_info  # type: ignore[attr-defined]
-                async_gen_cached_wrapper._original_qualname = func.__qualname__  # type: ignore[attr-defined]
                 _cached_functions.append(
-                    cast("_CachedFunction", async_gen_cached_wrapper)
+                    _attach_cache_info(
+                        async_gen_cached_wrapper, cache_info, name
+                    )
                 )
 
-                return async_gen_cached_wrapper
+                return cast("_Function", async_gen_cached_wrapper)
 
             # ------------------------------
             # SYNC FUNCTIONS
@@ -425,42 +453,46 @@ def lru_cache(
                 cached_func = functools.lru_cache(
                     maxsize=maxsize, typed=False
                 )(func)
-                cached_func._original_qualname = func.__qualname__  # type: ignore[attr-defined]
-                _cached_functions.append(cast("_CachedFunction", cached_func))
+                cached = _attach_cache_info(
+                    cached_func, cached_func.cache_info, name
+                )
+                _cached_functions.append(cached)
 
                 # Create a wrapper that calls show_all_cache_info() on execution
                 @functools.wraps(cached_func)
-                def cached_wrapper(*args: Any, **kwargs: Any) -> Any:
+                def cached_wrapper(*args: object, **kwargs: object) -> object:
                     """Wrap that shows cache info on execution and preserves cache functionality."""
                     output = cached_func(*args, **kwargs)
                     info = cached_func.cache_info()
                     if print_cache_info:
                         show_all_cache_info(cached_func)
                     if max_misses != -1 and info.misses > max_misses:
-                        msg = f"Function {func.__qualname__} has {info.misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
+                        msg = f"Function {name} has {info.misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
                         raise ValueError(msg)
                     return output
 
                 # Preserve the cache_info method and other attributes
-                cached_wrapper.cache_info = cached_func.cache_info  # type: ignore[attr-defined]
-                cached_wrapper._original_qualname = (  # type: ignore[attr-defined]
-                    cached_func._original_qualname  # type: ignore[attr-defined]
+                _attach_cache_info(
+                    cached_wrapper, cached_func.cache_info, name
                 )
 
-                return cached_wrapper
+                return cast("_Function", cached_wrapper)
 
             # ------------------------------
             # ASYNC FUNCTIONS
             # ------------------------------
 
             # For regular async functions, implement manual caching with unified CacheInfo
-            async_cache: dict[tuple[Any, ...], Any] = {}
-            async_cache_order: list[tuple[Any, ...]] = []
+            async_cache: OrderedDict[tuple[object, ...], object] = (
+                OrderedDict()
+            )
             async_hits = 0
             async_misses = 0
 
             @functools.wraps(func)
-            async def async_cached_wrapper(*args: Any, **kwargs: Any) -> Any:
+            async def async_cached_wrapper(
+                *args: object, **kwargs: object
+            ) -> object:
                 """Async wrapper that caches results properly."""
                 nonlocal async_hits, async_misses
 
@@ -468,11 +500,12 @@ def lru_cache(
                 key = (args, tuple(sorted(kwargs.items())))
 
                 # Check if result is cached
-                if key in async_cache:
+                if has_capacity and key in async_cache:
+                    async_cache.move_to_end(key)
                     async_hits += 1
                     if print_cache_info:
                         logger.info(
-                            f"Cache hit for async {func.__qualname__} (hits={async_hits}, misses={async_misses})"
+                            f"Cache hit for async {name} (hits={async_hits}, misses={async_misses})"
                         )
                     return async_cache[key]
 
@@ -480,27 +513,20 @@ def lru_cache(
                 async_misses += 1
                 if print_cache_info:
                     logger.info(
-                        f"Cache miss for async {func.__qualname__} - executing function (hits={async_hits}, misses={async_misses})"
+                        f"Cache miss for async {name} - executing function (hits={async_hits}, misses={async_misses})"
                     )
-                result = await func(*args, **kwargs)  # type: ignore[misc]
+                result = await cast("Awaitable[object]", call(*args, **kwargs))
 
-                # Cache the result with LRU eviction
-                if len(async_cache) >= (maxsize or 128):
-                    # Remove oldest entry
-                    oldest_key = async_cache_order.pop(0)
-                    del async_cache[oldest_key]
-
-                async_cache[key] = result
-                async_cache_order.append(key)
+                _store_cached(async_cache, key, result, maxsize=maxsize)
 
                 if print_cache_info:
                     logger.debug(
-                        f"Cached result for async {func.__qualname__} (cache size: {len(async_cache)})"
+                        f"Cached result for async {name} (cache size: {len(async_cache)})"
                     )
 
                 # Check max misses
                 if max_misses != -1 and async_misses > max_misses:
-                    msg = f"Function {func.__qualname__} has {async_misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
+                    msg = f"Function {name} has {async_misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
                     raise ValueError(msg)
 
                 return result
@@ -515,13 +541,11 @@ def lru_cache(
                     currsize=len(async_cache),
                 )
 
-            async_cached_wrapper.cache_info = cache_info  # type: ignore[attr-defined]
-            async_cached_wrapper._original_qualname = func.__qualname__  # type: ignore[attr-defined]
             _cached_functions.append(
-                cast("_CachedFunction", async_cached_wrapper)
+                _attach_cache_info(async_cached_wrapper, cache_info, name)
             )
 
-            return async_cached_wrapper  # type: ignore[return-value]
+            return cast("_Function", async_cached_wrapper)
 
         # No-operation decorator
         # ------------------------------
@@ -534,15 +558,19 @@ def lru_cache(
         if is_async_gen:
 
             @functools.wraps(func)
-            async def async_gen_wrapper(*args: Any, **kwargs: Any) -> Any:
+            async def async_gen_wrapper(
+                *args: object, **kwargs: object
+            ) -> AsyncIterator[object]:
                 """Async generator wrapper that passes through when cache is disabled."""
                 logger.warning(
                     f"{_get_cached_function_info(func)} has @lru_cache but it is disabled!"
                 )
-                async for value in func(*args, **kwargs):  # type: ignore[attr-defined]
+                async for value in cast(
+                    "AsyncIterator[object]", call(*args, **kwargs)
+                ):
                     yield value
 
-            return async_gen_wrapper
+            return cast("_Function", async_gen_wrapper)
 
         # ------------------------------
         # REGULAR GENERATORS
@@ -550,14 +578,16 @@ def lru_cache(
         if is_gen:
 
             @functools.wraps(func)
-            def gen_wrapper(*args: Any, **kwargs: Any) -> Any:
+            def gen_wrapper(
+                *args: object, **kwargs: object
+            ) -> Iterator[object]:
                 """Pass through generator when cache is disabled."""
                 logger.warning(
                     f"{_get_cached_function_info(func)} has @lru_cache but it is disabled!"
                 )
-                yield from func(*args, **kwargs)  # type: ignore[misc]
+                yield from cast("Iterator[object]", call(*args, **kwargs))
 
-            return gen_wrapper
+            return cast("_Function", gen_wrapper)
 
         # ------------------------------
         # ASYNC FUNCTIONS
@@ -565,20 +595,20 @@ def lru_cache(
         if is_async:
 
             @functools.wraps(func)
-            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            async def async_wrapper(*args: object, **kwargs: object) -> object:
                 """Async wrapper that passes through when cache is disabled."""
                 logger.warning(
                     f"{_get_cached_function_info(func)} has @lru_cache but it is disabled!"
                 )
-                return await func(*args, **kwargs)  # type: ignore[misc]
+                return await cast("Awaitable[object]", call(*args, **kwargs))
 
-            return async_wrapper  # type: ignore[return-value]
+            return cast("_Function", async_wrapper)
 
         # ------------------------------
         # SYNC FUNCTIONS
         # ------------------------------
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def wrapper(*args: object, **kwargs: object) -> object:
             """Act as a wrapper for another function, preserving its.
 
                 metadata and allowing flexible argument passing.
@@ -589,15 +619,15 @@ def lru_cache(
                 directly to the wrapped function.
 
             Arguments:
-                *args (Any): Represents any number of positional
+                *args (object): Represents any number of positional
                     arguments that can be passed to the wrapped
                     function.
-                **kwargs (Any): Represents any number of keyword
+                **kwargs (object): Represents any number of keyword
                     arguments that can be passed to the wrapped
                     function.
 
             Returns:
-                Any: Returns the result of calling the wrapped function
+                object: Returns the result of calling the wrapped function
                     with the provided arguments and keyword arguments.
 
             Example:
@@ -613,11 +643,11 @@ def lru_cache(
             logger.warning(
                 f"{_get_cached_function_info(func)} has @lru_cache but it is disabled!"
             )
-            return func(*args, **kwargs)
+            return call(*args, **kwargs)
 
-        return wrapper
+        return cast("_Function", wrapper)
 
-    return cast("Callable[[_T], _T]", decorator)
+    return decorator
 
 
 def get_cache_dir() -> str:
