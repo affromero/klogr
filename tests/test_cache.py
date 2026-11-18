@@ -9,10 +9,39 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
 
 from klogr import DisableableLRUCache, lru_cache
+from klogr.cache import is_lru_cache_disabled, show_all_cache_info
 
 
 class CacheConfigurationTests(TestCase):
     """Exercise the decorator in a clean working directory."""
+
+    def test_same_disable_scope_restores_state_after_nested_exception(
+        self,
+    ) -> None:
+        """Restore the outer override, then the original configuration."""
+        scope = DisableableLRUCache()
+        with patch.dict(os.environ, {"DISABLE_LRU_CACHE": "False"}):
+            with scope:
+                try:
+                    with scope:
+                        assert is_lru_cache_disabled()
+                        message = "exit the inner scope"
+                        raise RuntimeError(message)
+                except RuntimeError:
+                    pass
+                assert is_lru_cache_disabled()
+            assert not is_lru_cache_disabled()
+
+    def test_report_accepts_the_public_sync_wrapper(self) -> None:
+        """Find cache statistics by the function returned by the decorator."""
+        with patch.dict(os.environ, {"DISABLE_LRU_CACHE": "False"}):
+
+            @lru_cache()
+            def load() -> int:
+                return 42
+
+            assert load() == 42
+            show_all_cache_info(load)
 
     def test_missing_dotenv_keeps_caching_enabled(self) -> None:
         """Cache calls without requiring a local config file."""

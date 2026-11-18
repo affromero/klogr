@@ -150,15 +150,16 @@ class DisableableLRUCache:
 
     """
 
-    _token: Token[bool | None] | None
+    _tokens: ContextVar[tuple[Token[bool | None], ...]]
 
     def __init__(self) -> None:
         """Initialize the context manager."""
-        self._token = None
+        self._tokens = ContextVar("klogr_cache_scope_tokens", default=())
 
     def __enter__(self) -> Self:
         """Enter the context and disable LRU cache."""
-        self._token = _lru_cache_disabled_override.set(True)
+        token = _lru_cache_disabled_override.set(True)
+        self._tokens.set((*self._tokens.get(), token))
         return self
 
     def __exit__(
@@ -168,8 +169,10 @@ class DisableableLRUCache:
         exc_tb: object,
     ) -> None:
         """Exit the context and restore the previous cache state."""
-        if self._token is not None:
-            _lru_cache_disabled_override.reset(self._token)
+        tokens = self._tokens.get()
+        if tokens:
+            _lru_cache_disabled_override.reset(tokens[-1])
+            self._tokens.set(tokens[:-1])
 
 
 def show_all_cache_info(
@@ -453,10 +456,6 @@ def lru_cache(
                 cached_func = functools.lru_cache(
                     maxsize=maxsize, typed=False
                 )(func)
-                cached = _attach_cache_info(
-                    cached_func, cached_func.cache_info, name
-                )
-                _cached_functions.append(cached)
 
                 # Create a wrapper that calls show_all_cache_info() on execution
                 @functools.wraps(cached_func)
@@ -465,15 +464,17 @@ def lru_cache(
                     output = cached_func(*args, **kwargs)
                     info = cached_func.cache_info()
                     if print_cache_info:
-                        show_all_cache_info(cached_func)
+                        show_all_cache_info(cached_wrapper)
                     if max_misses != -1 and info.misses > max_misses:
                         msg = f"Function {name} has {info.misses} cache misses. This is too many. This is probably a bug. If not, update the max_misses parameter."
                         raise ValueError(msg)
                     return output
 
                 # Preserve the cache_info method and other attributes
-                _attach_cache_info(
-                    cached_wrapper, cached_func.cache_info, name
+                _cached_functions.append(
+                    _attach_cache_info(
+                        cached_wrapper, cached_func.cache_info, name
+                    )
                 )
 
                 return cast("_Function", cached_wrapper)
