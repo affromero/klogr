@@ -5,6 +5,28 @@ All notable changes to klogr are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-11-18
+
+### Added
+
+- Show elapsed time during long waits with `logger.timed_status()`.
+  Optional text updates are throttled, and outcomes distinguish completion,
+  failure, and cancellation. ([#15](https://github.com/affromero/klogr/pull/15),
+  [#12](https://github.com/affromero/klogr/issues/12))
+- Opt in to absolute `path:line` source locations without embedded
+  terminal hyperlinks. ([#15](https://github.com/affromero/klogr/pull/15),
+  [#13](https://github.com/affromero/klogr/issues/13))
+
+### Fixed
+
+- Share one live display between dashboards, `track()`, and `progress()`,
+  including on Rich 13.9.4. ([#11](https://github.com/affromero/klogr/pull/11))
+
+### Documentation
+
+- Add runnable table and dashboard examples with terminal recordings.
+  ([#10](https://github.com/affromero/klogr/pull/10))
+
 ## [0.3.0] - 2026-11-17
 
 ### Added
