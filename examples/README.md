@@ -13,3 +13,4 @@ uv run examples/<name>.py
 | [`03_progress_tracking.py`](03_progress_tracking.py) | `logger.track()` keeping a live progress bar over a `ThreadPoolExecutor.map(...)`. |
 | [`04_caching.py`](04_caching.py) | `@lru_cache` speedup, plus `get_cache_dir` and `sha256sum` for stable on-disk paths. |
 | [`05_path_helpers.py`](05_path_helpers.py) | Local + `s3://` paths flowing through the same `path_*` helpers. |
+| [`06_live_dashboard.py`](06_live_dashboard.py) | A custom Rich dashboard with a text log and a JSON Lines event stream. Run with `uv run examples/06_live_dashboard.py logs/demo`. |
