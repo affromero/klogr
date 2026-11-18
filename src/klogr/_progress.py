@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from rich import progress
-from rich.progress import Progress
+from rich.progress import Progress as _RichProgress
 from rich.text import Text
 
 if TYPE_CHECKING:
     from rich.console import Console
+
+Progress = _RichProgress
 
 
 class IterationsPerSecondColumn(progress.ProgressColumn):
