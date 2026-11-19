@@ -1,14 +1,149 @@
 """Exercise structured progress and dashboard output."""
 
+import asyncio
 import json
 import sys
 from io import StringIO
-from unittest import TestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 
 from pydantic import ValidationError
 from rich.console import Console
+from rich.text import Text
 
-from klogr import LoggingRich, ProgressEvent, ProgressStatus
+from klogr import (
+    DashboardRow,
+    DashboardState,
+    LoggingRich,
+    ProgressEvent,
+    ProgressStatus,
+)
+
+
+class LiveDashboardTests(TestCase):
+    """Check table updates and cleanup through the public dashboard API."""
+
+    def test_rows_statuses_progress_and_messages_share_the_terminal(
+        self,
+    ) -> None:
+        """Render Text statuses and update rows without another Live display."""
+        terminal, persistent = StringIO(), StringIO()
+        logger = LoggingRich(
+            console=Console(
+                file=terminal,
+                force_terminal=True,
+                force_interactive=True,
+                width=52,
+            )
+        )
+        with (
+            logger.route(persistent),
+            logger.live_dashboard("Search") as dashboard,
+            logger.status(Text("Checking", style="cyan")) as status,
+            logger.progress() as progress,
+        ):
+            status.update(Text("Retrying", style="red"))
+            progress.add_task("Decode", total=1, completed=1)
+            dashboard.update_row(
+                "east",
+                DashboardRow(
+                    name="[red]東京",
+                    state=DashboardState.RUNNING,
+                    percent=75,
+                ),
+            )
+            logger.print("ordinary message", force=True)
+            dashboard.update_row(
+                "east",
+                DashboardRow(name="[red]東京", state=DashboardState.SUCCEEDED),
+            )
+        displayed = terminal.getvalue()
+        assert "[red]東京" in displayed
+        assert "Retrying" in displayed
+        assert "Decode" in displayed
+        written = persistent.getvalue()
+        assert "ordinary message" in written
+        assert "1 succeeded" in written
+        assert "\x1b" not in written
+
+    def test_redirected_dashboard_records_changes_and_failure(self) -> None:
+        """Keep literal error text and show a failure summary once."""
+        output = StringIO()
+        logger = LoggingRich()
+        row = DashboardRow(
+            name="east",
+            state=DashboardState.FAILED,
+            attempts=2,
+            error="[bad]\nretry",
+        )
+        try:
+            with (
+                logger.route(output, terminal=False),
+                logger.live_dashboard("Search") as dashboard,
+            ):
+                dashboard.update_row("east", row)
+                dashboard.update_row("east", row)
+                message = "search failed"
+                raise RuntimeError(message)
+        except RuntimeError as exc:
+            received = str(exc)
+        else:
+            self.fail("The dashboard swallowed the error")
+        assert received == "search failed"
+        assert output.getvalue().count("last error: [bad] retry") == 1
+        assert "Search: failed | 1 failed" in output.getvalue()
+
+    def test_native_status_accepts_strings_and_text(self) -> None:
+        """Keep the native spinner API for either message type."""
+        output = StringIO()
+        logger = LoggingRich(
+            console=Console(
+                file=output, force_terminal=True, force_interactive=True
+            )
+        )
+        with logger.status("Waiting") as status:
+            status.update(Text("Still waiting"))
+        with logger.status(Text("Done", style="cyan")) as status:
+            logger.print(status.renderable, force=True)
+        assert "Done" in output.getvalue()
+
+
+class ConcurrentDashboardTests(IsolatedAsyncioTestCase):
+    """Verify concurrent updates and cancellation on one event loop."""
+
+    async def test_cancelled_dashboard_reports_both_task_updates(self) -> None:
+        """Keep completed row updates and stop the live display on cancellation."""
+        terminal = StringIO()
+        logger = LoggingRich(
+            console=Console(
+                file=terminal, force_terminal=True, force_interactive=True
+            )
+        )
+        reached = asyncio.Event()
+
+        async def run() -> None:
+            with logger.live_dashboard("Search") as dashboard:
+
+                async def complete(region: str) -> None:
+                    dashboard.update_row(
+                        region,
+                        DashboardRow(
+                            name=region, state=DashboardState.SUCCEEDED
+                        ),
+                    )
+
+                await asyncio.gather(complete("east"), complete("west"))
+                reached.set()
+                await asyncio.Future[None]()
+
+        task = asyncio.create_task(run())
+        await asyncio.wait_for(reached.wait(), timeout=2)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        assert task.cancelled()
+        assert "Search: cancelled | 2 succeeded" in terminal.getvalue()
+        with logger.live_dashboard("Next search"):
+            pass
+        assert "Next search: finished" in terminal.getvalue()
 
 
 class ProgressEventTests(TestCase):
