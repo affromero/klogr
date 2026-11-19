@@ -1,3 +1,6 @@
+from ._dashboard import Dashboard as Dashboard
+from ._dashboard import DashboardRow as DashboardRow
+from ._dashboard import DashboardState as DashboardState
 from ._streams import FileMode as FileMode
 from .cache import DisableableLRUCache as DisableableLRUCache
 from .cache import get_cache_dir as get_cache_dir
@@ -13,6 +16,9 @@ from .time import get_elapsed_time as get_elapsed_time
 
 __all__ = [
     "DEFAULT_VERBOSITY",
+    "Dashboard",
+    "DashboardRow",
+    "DashboardState",
     "DisableableLRUCache",
     "FileMode",
     "LoggingRich",

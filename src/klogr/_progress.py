@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from rich import progress
 from rich.console import Group
 from rich.live import Live
 from rich.progress import Progress as _RichProgress
+from rich.status import Status
 from rich.text import Text
 
 if TYPE_CHECKING:
     from rich.console import Console, RenderableType
+    from rich.style import StyleType
+    from typing_extensions import Unpack
 
 Progress = _RichProgress
 
@@ -168,6 +171,51 @@ class DashboardProgress(Progress):
             super().refresh()
         elif self._attached and not self.disable:
             self._display.refresh()
+
+
+class StatusOptions(TypedDict, total=False):
+    """Options accepted by the Rich status factory."""
+
+    spinner: str
+    spinner_style: StyleType
+    speed: float
+    refresh_per_second: float
+
+
+class DashboardStatus(Status):
+    """Attach a Rich spinner to an existing live display."""
+
+    _display: DashboardDisplay
+    _attached: bool
+
+    def __init__(
+        self,
+        message: RenderableType,
+        *,
+        display: DashboardDisplay,
+        **kwargs: Unpack[StatusOptions],
+    ) -> None:
+        """Keep the native status and its renderable update API."""
+        super().__init__(message, console=display.console, **kwargs)
+        self._display = display
+        self._attached = False
+
+    def start(self) -> None:
+        """Start the spinner inside the active dashboard when available."""
+        if self._display.interactive:
+            if not self._attached:
+                self._attached = True
+                self._display.add_status(self)
+        else:
+            super().start()
+
+    def stop(self) -> None:
+        """Remove the spinner without stopping its dashboard."""
+        if self._attached:
+            self._attached = False
+            self._display.remove_status(self)
+        else:
+            super().stop()
 
 
 def make_progress(

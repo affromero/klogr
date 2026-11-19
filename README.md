@@ -157,6 +157,23 @@ open and close the file. Import `FileMode` from `klogr` and choose
 files and symlinks. This API routes logger messages. The existing `to_file()`
 also mirrors direct writes to the selected standard stream.
 
+### Track several operations in one dashboard
+
+Use `logger.live_dashboard()` with `DashboardRow` to update operations by
+key. The interactive display shows elapsed time and shares the terminal
+with `status()`, `timed_status()`, and progress bars. Redirected and file
+destinations receive each changed row and a final summary.
+
+![Live capacity search with region rows and a shared status spinner](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/region-dashboard.gif)
+
+```bash
+uv run examples/07_region_dashboard.py
+```
+
+Use one outer live scope per console. Async tasks on the owning thread
+can update its rows. The optional `render` callback receives a row snapshot
+on the Rich render thread.
+
 ### Report stage and frame progress
 
 ![Live dashboard showing decode and score stages and their output files](https://raw.githubusercontent.com/affromero/klogr/main/docs/media/dashboard.gif)

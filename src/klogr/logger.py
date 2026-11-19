@@ -26,6 +26,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from klogr import _progress
+from klogr._dashboard import Dashboard, DashboardRow, dashboard_scope
 from klogr._source import enable_plain_source
 from klogr._streams import FileMode, MessageRoute, StreamMirror
 from klogr._streams import StdoutDuplicator as _StdoutDuplicator
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
     from typing import TextIO, TypeVar
 
     from rich.console import RenderableType
+    from rich.status import Status
+    from typing_extensions import Unpack
 
     _T = TypeVar("_T")
 
@@ -398,33 +401,7 @@ class LoggingRich:
         self._emit_level("info", msg, force=force, options=kwargs)
 
     def __jsonize(self, msg: str) -> str:
-        """JSONize a message and add color formatting.
-
-        Arguments:
-            msg (str): A valid JSON string to format
-
-        Returns:
-            str: Formatted JSON string with Rich color markup
-
-        Raises:
-            JSONDecodeError: If input is not valid JSON
-
-        Example:
-            >>> msg = '{"name": "John", "age": 30, "active": true}'
-            >>> logger.__jsonize(msg)
-            {
-                [blue]"name"[/blue]: [gold3]"John"[/gold3],
-                [blue]"age"[/blue]: [gold3]30[/gold3],
-                [blue]"active"[/blue]: [gold3]true[/gold3]
-            }
-
-            When printed with Rich, this will display as colored JSON with:
-            - Keys in blue
-            - String values in gold3
-            - Numbers in gold3
-            - Booleans/null in gold3
-
-        """
+        """Format JSON with Rich markup for terminal display."""
         # Parse and reformat with consistent indentation
         jsonize = json.dumps(json.loads(msg), indent=4)
         # Color the keys blue and values gold3 in the JSON string
@@ -676,9 +653,24 @@ class LoggingRich:
         """Log an exception message with a specified message and additional keyword arguments."""
         self.print_exception(msg, stack_offset=stack_offset + 1, **kwargs)
 
-    def status(self, msg: str, **kwargs: Any) -> Any:
-        """Display a status message along with any additional keyword arguments in the console."""
-        return self.console.status(msg, **kwargs)
+    def status(
+        self, msg: RenderableType, **kwargs: Unpack[_progress.StatusOptions]
+    ) -> Status:
+        """Display a Rich status, sharing the active live display when present."""
+        display = self._dashboard_for(self.console)
+        if display is None:
+            return self.console.status(msg, **kwargs)
+        return _progress.DashboardStatus(msg, display=display, **kwargs)
+
+    def live_dashboard(
+        self,
+        title: str,
+        *,
+        render: Callable[[tuple[DashboardRow, ...]], RenderableType]
+        | None = None,
+    ) -> contextlib.AbstractContextManager[Dashboard]:
+        """Track independently changing operations in a scoped dashboard."""
+        return dashboard_scope(self, title, render=render)
 
     @contextlib.contextmanager
     def timed_status(
@@ -825,12 +817,18 @@ class LoggingRich:
         if display is None:
             yield publish
             return
+        with contextlib.closing(display), self._bind_dashboard(display):
+            yield publish
+
+    @contextlib.contextmanager
+    def _bind_dashboard(
+        self, display: _progress.DashboardDisplay
+    ) -> Iterator[None]:
         token = self._dashboard.set(display)
         try:
-            yield publish
+            yield
         finally:
             self._dashboard.reset(token)
-            display.close()
 
     def unittest_logger(self, file_str: str) -> None:
         """Initialize a console object for logging unit test results."""

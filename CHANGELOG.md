@@ -5,6 +5,19 @@ All notable changes to klogr are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-11-18
+
+### Added
+
+- Track multiple operations in a live dashboard with elapsed time, row states,
+  and shared status spinners. Redirected output records row changes and a
+  final summary. ([#17](https://github.com/affromero/klogr/issues/17))
+
+### Fixed
+
+- Type `logger.status()` to accept Rich renderables, including `Text`, and
+  return a typed Rich status. ([#14](https://github.com/affromero/klogr/issues/14))
+
 ## [0.3.1] - 2026-11-18
 
 ### Added
